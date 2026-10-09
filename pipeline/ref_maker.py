@@ -2,6 +2,7 @@ import io
 import copy
 import datetime
 import pytz
+import dateutil.parser
 import textwrap
 import argparse
 
@@ -23,7 +24,7 @@ from models.refset import RefSet
 
 from util.config import Config
 from util.logger import SCLogger
-from util.util import parse_dateobs
+from util.util import parse_dateobs, reconstruct_commandline, asUUID
 
 
 class ParsRefMaker(Parameters):
@@ -109,7 +110,7 @@ class ParsRefMaker(Parameters):
             (None, float),
             ( 'If given a fiducial time (e.g. an image), then define a time period that is this many days '
               'away from that fiducial time in which to search for images to combine into a reference.  Can '
-              'be negative.  None=no limit.' ),
+              'be negative.  None=no limit.  Ignored if start_time is not None.' ),
             critical=True
         )
 
@@ -118,8 +119,46 @@ class ParsRefMaker(Parameters):
             None,
             (None, float),
             ( 'Like fiducial_start_delta_days, but defines the end of the time period in which to search for '
-              'images to combine into a reference.  None=no limit.' ),
+              'images to combine into a reference.  None=no limit.  Ignored if end_time is not None.' ),
             critical=True
+        )
+
+        self.time_window_days = self.add_par(
+            name = 'time_window_days',
+            default = None,
+            par_types = (None, float),
+            docstring = ( 'Ignored if both (start_time, end_time) or both (fiducial_start_delta_days, '
+                          'fiducial_end_delta_days) are given.  If not, then this defines the other end '
+                          'of the window.  You must give at least one of (start_time, end_time, '
+                          'fiducial_start_delta_days, fiducial_end_delta_days, or noncritical_start_time) '
+                          'if this is not None' ),
+            critical=True
+        )
+
+        self.noncritical_start_time = self.add_par(
+            name = 'noncritical_start_time',
+            default = None,
+            par_types = ( None, str, float, datetime.datetime, datetime.date ),
+            docstring = ( 'Ignored if start_time or end_time is non-None.  Use this as a way of '
+                          'creating a time-dyanmic reference provenance.  If you use start_time or end_time, '
+                          'those get baked into the provenance.  This does not, so you can build references '
+                          'that cover different times and still have them all be in the same provenance.  '
+                          'You probably want to use time_window_days if you use this, because that probably '
+                          'is an important part of a time-dynamic reference provenance.  You probably also want '
+                          'to set delta_days_validity_start and/or delta_days_validity_end, but *not* '
+                          'validity_start or validity_end' ),
+            critical = False
+        )
+
+        self.noncritical_end_time = self.add_par(
+            name = 'noncritical_end_time',
+            default = None,
+            par_types = ( None, str, float, datetime.datetime, datetime.date ),
+            docstring = ( 'Just like noncritical_start_time, only it specifies the end of the window. '
+                          'Although it\'s allowed, from a sanity-in-provenance point of view you should '
+                          '*not* use this together with noncritical_start_time; just use one, and always '
+                          'set a time_window.' ),
+            critical = False
         )
 
         self.delta_days_validity_start = self.add_par(
@@ -144,20 +183,25 @@ class ParsRefMaker(Parameters):
         self.validity_start = self.add_par(
             'vaidity_start_date',
             None,
-            (None, datetime),
+            (None, str),
             ( "When creating a reference, set its validity_start to this time.  If both this parameter "
-              "and validity_start_delta_days are non-None, this one takes precedence." ),
+              "and validity_start_delta_days are non-None, this one takes precedence.  This can either be "
+              "an ISO time string, or a float; if the latter, it's interpreted as MJD.  (But, be aware that "
+              "specifying equivalent things different ways *will* give you a different provenance!" ),
             critical=True
         )
 
         self.validity_end = self.add_par(
             'validity_end',
             None,
-            (None, datetime),
+            (None, str),
             ( "When creating a reference, set its validity_end to this time.  If both this parameter "
               "and validity_end_delta_days are non-None, this one takes precedence.  If through these or "
               "the *delta* parameters you end up with validity_end < validity_start, then your reference "
-              "will never be used, and you should probably re-evaluate your choices for the parameters." ),
+              "will never be used, and you should probably re-evaluate your choices for the parameters.  "
+              "This can either be an ISO time strng, or a float; if the latter, it's interpreted as MJD.  "
+              "(But, be aware that specifying equivalent things different ways *will* give you a different "
+              "provenance!" ),
             critical=True
         )
 
@@ -218,6 +262,23 @@ class ParsRefMaker(Parameters):
             critical=True
         )
 
+        self.selection_criteria = self.add_par(
+            name = 'selection_criteria',
+            default = 'no_duplicates',
+            par_types = ( str, list ),
+            docstring = ( "When searching for existing references, if multiple refs are found, how should "
+                          "we deal with it?  If this is a list, the criteria are applied in order, if an "
+                          "earlier criterion on the list still yielded more than one reference.  Possibilities "
+                          "include the following: no_duplicates = raise an exception if more than one reference "
+                          "matches; latest = reference with the latest validity_end (or validity_start if "
+                          "validity_end isn't defined for these refs); earliest = reference with the earliest "
+                          "validity_start (or validity_end if validity_start isn't defined for these refs); "
+                          "best_seeing = reference with the smallest seeing; best_lim_mag = reference with the "
+                          "highest limiting magnitude; whatever = choose something not entirely deterministic "
+                          "but also not really random." ),
+            critical = True
+        )
+
         self.__image_query_pars__ = ['airmass', 'background', 'seeing', 'lim_mag', 'exp_time']
 
         for name in self.__image_query_pars__:
@@ -234,6 +295,14 @@ class ParsRefMaker(Parameters):
                                               'If None, will not limit the minimal lim_mag. ')
         self.__docstrings__['max_lim_mag'] = ('Only use images with lim_mag smaller (brighter) than this. '
                                               'If None, will not limit the maximal lim_mag. ')
+        self.__docstrings__['min_lim_mag_by_filter'] = ('A dictionary that specifies to only use images with '
+                                                        'im_mag larger (fainter) than this for specified filters.  '
+                                                        'If the image is of a filter that\'s not in this '
+                                                        'dictionary, will use min_lim_mag instead.' )
+        self.__docstrings__['max_lim_mag_by_filter'] = ('A dictionary that specifies to only use images with '
+                                                        'im_mag smaller (brighter) than this for specified filters.  '
+                                                        'If the image is of a filter that\'s not in this '
+                                                        'dictionary, will use min_lim_mag instead.' )
 
         self.min_number = self.add_par(
             'min_number',
@@ -448,7 +517,7 @@ class RefMaker:
         self.coadd_provs = None
         self.ref_prov = None
         self.refset = None
-        self.subtraction_minovfrac = config.value( 'subtraction.reference.minovfrac' )
+        self._config_subtraction_minovfrac = config.value( 'subtraction.reference.min_overlap' )
 
 
     # ======================================================================
@@ -617,10 +686,12 @@ class RefMaker:
 
     # ======================================================================
 
-    def parse_arguments( self, image=None, image_zp_prov_id=None, zp_prov_id=None, ra=None, dec=None,
-                             minra=None, maxra=None, mindec=None, maxdec=None,
-                             target=None, section_id=None, mjd=None, filter=None ):
-        """Parse arguments for the RefMaker.
+    def parse_arguments( self, image=None, image_zp_prov_id=None, filter=None,
+                         ra=None, dec=None, minra=None, maxra=None, mindec=None, maxdec=None,
+                         target=None, section_id=None,
+                         noncritical_start_time=None, noncritical_end_time=None,
+                         mjd=None, ):
+        """Parse runtime (NOT instantiation time) arguments for the RefMaker.
 
         There are three modes in which RefMaker can operate:
 
@@ -638,7 +709,7 @@ class RefMaker:
           is aligned to NS/EW.
 
         Parameters
-        ----------
+       ----------
           image: str or None
             The id of the image, or a substring of the filepath of the
             image.  If the substring is not unique (i.e. there are
@@ -671,17 +742,20 @@ class RefMaker:
           mjd: float or None
             Find references suitable for an image at this mjd.  If None,
             and image is not None, will pull the mjd from teh database
-            record for the image.
+            record for the image.  THIS IS NOT USED, THIS PARAMETER SHOULD
+            BE REMOVED.
 
         """
 
+        # First, see if we're operating in image mode, and if so,
+        #   figure out ra/dec from the image
         if image is not None:
             if any ( i is not None for i in [ ra, dec, minra, maxra, mindec, maxdec ] ):
                 raise ValueError( "If you pass image to RefMaker.run, you can't pass any coordinates." )
 
             if isinstance( image, Image ):
                 imgid = image.id
-                mjd = image.mjd
+                mjd = image.mjd if mjd is None else mjd
                 imgra = image.ra
                 imgdec = image.dec
                 imgminra = image.minra
@@ -740,6 +814,7 @@ class RefMaker:
                         imgra = ( imgminra + imgmaxra )  / 2.
                     imgdec = ( imgmindec + imgmaxdec ) / 2.
 
+        # Deal with area vs. point, detetected by corner_distance being non-None
         if self.pars.corner_distance is None:
             if any( i is not None for i in [ minra, maxra, mindec, maxdec ] ):
                 raise ValueError( "For RefMaker corner_distance None, can't specify minra/maxra/mindec/maxdec" )
@@ -751,6 +826,7 @@ class RefMaker:
             else:
                 if ( ra is None ) or ( dec is None ):
                     raise ValueError( "For RefMaker corner_distance None, must provide either image or both ra & dec" )
+            self.subtraction_minovfrac = None
         else:
             if ( ra is not None ) or ( dec is not None ):
                 raise ValueError( "For RefMaker corner_distance not None, can't specify ra/dec" )
@@ -766,7 +842,56 @@ class RefMaker:
                 if any ( i is None for i in [ minra, maxra, mindec, maxdec ] ):
                     raise ValueError( "For RefMaker corner_distance not None, must specify image or "
                                       "all of minra/maxra/mindec/maxdec" )
+            self.subtraction_minovfrac = self._config_subtraction_minovfrac
 
+        # Figure out time ranges for searching for images to use in refs
+        self.start_time = None if self.pars.start_time is None else parse_dateobs( self.pars.start_time )
+        self.end_time = None if self.pars.end_time is None else parse_dateobs( self.pars.end_time )
+        if self.pars.fiducial_start_delta_days is not None:
+            if self.start_time is not None:
+                raise ValueError( "Can't give both start_time and fiducial_start_delta_days" )
+            if self.end_time is not None:
+                SCLogger.warning( "Giving fiducial_start_delta_days and end_time together; this is weird.  "
+                                  "Make sure you really know what you're doing!" )
+            if mjd is None:
+                raise ValueError( "Can't use fiducial_start_delta_days, don't have a fiducial time!" )
+            self.start_time = mjd - self.pars.fiducial_start_delta_days
+        if self.pars.fiducial_end_delta_days is not None:
+            if self.end_time is not None:
+                raise ValueError( "Can't give both end_time and fiducial_end_delta_days" )
+            if self.start_time is not None:
+                SCLogger.warning( "Giving fiducial_end_delta_days and start_time together; this is weird.  "
+                                  "Make sure you really know what you're doing!" )
+            if mjd is None:
+                raise ValueError( "Can't use fiducial_end_delta_days, don't have a fiducial time!" )
+            self.end_time = mjd + self.pars.fiducial_end_delta_days
+
+        noncritical_start_time = ( noncritical_start_time if noncritical_start_time is not None
+                                   else self.pars.noncritical_start_time )
+        noncritical_end_time = ( noncritical_end_time if noncritical_end_time is not None
+                                 else self.pars.noncritical_end_time )
+        if noncritical_start_time is not None:
+            if self.start_time is not None:
+                raise ValueError( "Can't specify both a (start time or fiducial_start_delta_days) and "
+                                  "a noncritical_start_time." )
+            self.start_time = parse_dateobs( noncritical_start_time )
+        if noncritical_end_time is not None:
+            if self.end_time is not None:
+                raise ValueError( "Can't specify both a (end time or fiducial_end_delta_days) and "
+                                  "a noncritical_end_time" )
+            self.end_time = parse_dateobs( noncritical_end_time )
+
+        if self.pars.time_window_days is not None:
+            if ( self.start_time is not None ) and ( self.end_time is not None ):
+                raise ValueError( "Error, can't give a time_window_days when you have both a start and end time" )
+            if ( self.start_time is None ) and ( self.end_time is None ):
+                raise ValueError( "Error, can't give a time_window_days when you have neither a start nor end time" )
+            if self.start_time is None:
+                self.start_time = self.end_time - self.pars.time_window_days
+            else:
+                self.end_time = self.start_time + self.pars.time_window_days
+
+        # Fill in the other self variables we will need
         self.mjd = mjd
         self.minra = minra
         self.maxra = maxra
@@ -838,9 +963,9 @@ class RefMaker:
                                     [ ctrra + dra, ctrdec + ddec ] ] )
             match_count = [ 0 ] * 9
             # PYTHON VIOLATES PRINCIPLE OF LEAST SURPRISE
-            # This next line doesn't make a list of 9 empty lists.
-            # No, it makes a list of 9 references to the SAME empty list.
-            # match_pos_images = [ [] ] * 9
+            # The line
+            #   match_pos_images = [ [] ] * 9
+            # doesn't make a list of 9 empty lists. No, it makes a list of 9 references to the SAME empty list.
             match_pos_images = [ [] for i in range(len(match_count)) ]
             kwargs = { 'minra': self.minra, 'maxra': self.maxra, 'mindec': self.mindec, 'maxdec': self.maxdec,
                        'overlapfrac': self.pars.coadd_overlap_fraction }
@@ -850,9 +975,8 @@ class RefMaker:
         kwargs['instrument' ] = self.pars.instrument
         kwargs['project'] = self.pars.projects
         kwargs['filter'] = self.filter
-        kwargs['min_mjd'] = ( None if self.pars.start_time is None
-                              else parse_dateobs( self.pars.start_time, output='mjd' ) )
-        kwargs['max_mjd'] = None if self.pars.end_time is None else parse_dateobs( self.pars.end_time, output='mjd' )
+        kwargs['min_mjd'] = None if self.start_time is None else self.start_time
+        kwargs['max_mjd'] = None if self.end_time is None else self.end_time
 
         for kw in self.pars.__filter_based_image_query_pars__:
             for min_max in [ 'min', 'max' ]:
@@ -944,7 +1068,7 @@ class RefMaker:
 
     # ======================================================================
 
-    def run(self, *args, do_not_build=False, identify_even_if_not_building=False, **kwargs ):
+    def run( self, *args, do_not_build=False, identify_even_if_not_building=False, **kwargs ):
         """Look to see if there is an existing reference that matches the specs; if not, optionally build one.
 
         See parse_arguments for function call parameters.  The remaining
@@ -962,11 +1086,11 @@ class RefMaker:
 
         """
 
-        self.parse_arguments( *args, **kwargs )
         self.make_refset()
+        self.parse_arguments( *args, **kwargs )
 
         # look for the reference at the given location in the sky (via ra/dec or target/section_id)
-        refsandimgs = Reference.get_references(
+        refs, _ = Reference.get_references(
             minra=self.minra,
             maxra=self.maxra,
             mindec=self.mindec,
@@ -977,11 +1101,9 @@ class RefMaker:
             section_id=self.section_id,
             filter=self.filter,
             provenance_ids=self.ref_prov.id,
-            for_image_mjd=self.mjd,
+            mjds=None if self.mjd is None else [ self.mjd ],
             overlapfrac=self.subtraction_minovfrac
         )
-
-        refs, _ = refsandimgs
 
         # if found a reference, can skip the next part of the code!
         if len(refs) == 1:
@@ -1054,7 +1176,7 @@ class RefMaker:
             return None
         else:
             SCLogger.debug( f"Overlap statistics:{nlsp}{mess}" )
-            SCLogger.debug( f"Combining images to make ref:\n"
+            SCLogger.debug( f"Combining images to make ref:{nlsp}"
                             f"{nlsp.join( d.image.filepath for d in dses )}" )
 
         alignment_target_datastore = None
@@ -1103,14 +1225,31 @@ class RefMaker:
                   'CUNIT1': 'deg',
                   'CUNIT2': 'deg' } )
 
+        # TODO : right now, we set always_build=True, because we had a
+        #   case where exactly the same set of images were going to be
+        #   coadded as had been previously, but they were not centered
+        #   the same way (given an alignment_wcs).  We need to improve
+        #   our "existing coadd" recongition to fix this; see the TODO
+        #   in the docstring on CoaddPipeline.run in the always_build
+        #   parameter documentation.  For now, trust that if there was
+        #   a proper pre-existing coadd, it would only have been there
+        #   because somebody was making a ref, and we would have found
+        #   it above.  This is scary... somebody might make coadds for
+        #   other reasons.  Issue #541.
         coadd_ds = self._coadd_pipeline.run( dses, prov_tree=self.coadd_provs,
                                              alignment_target_datastore=alignment_target_datastore,
-                                             alignment_wcs=alignment_wcs )
+                                             alignment_wcs=alignment_wcs, always_build=True )
         t0 = None
         if self.pars.validity_start is not None:
             t0 = self.pars.validity_start
-            if t0.tzinfo is None:
-                t0 = pytz.utc.localize( t0 )
+            try:
+                t0 = float( t0 )
+            except ValueError:
+                t0 = dateutil.parser.parse( t0 )
+                if t0.tzinfo is None:
+                    t0 = pytz.utc.localize( t0 )
+            else:
+                t0 = pytz.utc.localize( astropy.time.Time(t0, format='mjd').datetime )
         elif self.pars.delta_days_validity_start is not None:
             dt = self.pars.delta_days_validity_start
             t0 = pytz.utc.localize( astropy.time.Time( dses[0 if dt < 0 else -1].image.mjd, format='mjd' ).datetime )
@@ -1119,8 +1258,14 @@ class RefMaker:
         t1 = None
         if self.pars.validity_end is not None:
             t1 = self.pars.validity_end
-            if t1.tzinfo is None:
-                t1 = pytz.utc.localize( t1 )
+            try:
+                t1 = float( t1 )
+            except ValueError:
+                t1 = dateutil.parser.parse( t1 )
+                if t1.tzinfo is None:
+                    t1 = pytz.utc.localize( t1 )
+            else:
+                t1 = pytz.utc.localize( astropy.time.Time(t1, format='mjd').datetime )
         elif self.pars.delta_days_validity_end is not None:
             dt = self.pars.delta_days_pars.validity_end
             t1 = pytz.utc.localize( astropy.time.Time( dses[0 if dt < 0 else -1].image.mjd, format='mjd' ).datetime )
@@ -1139,8 +1284,8 @@ class RefMaker:
 
         return ref
 
-# ======================================================================
 
+# ======================================================================
 
 class ArgFormatter( argparse.ArgumentDefaultsHelpFormatter, argparse.RawDescriptionHelpFormatter ):
     def __init__( self, *args, **kwargs ):
@@ -1152,18 +1297,67 @@ def main():
                                       description="Build a reference",
                                       formatter_class=ArgFormatter,
                                       epilog="Rob write help" )
-    parser.add_argument( "-r", "--ra", type=float, default=None,
+    parser.add_argument( "-o", "--object", default=argparse.SUPPRESS,
+                         help=( "UUID or name of object to use for looking up ra and dec.  Do not use with "
+                                "any of --ra, --dec, --image, --minra, --maxra, --mindec, --maxdec" ) )
+    parser.add_argument( "-r", "--ra", type=float, default=argparse.SUPPRESS,
                          help="RA to make a reference for; decimal degrees.  See description above." )
-    parser.add_argument( "-d", "--dec", type=float, default=None,
+    parser.add_argument( "-d", "--dec", type=float, default=argparse.SUPPRESS,
                          help="RA to make a reference for; decimal degrees.  See description above." )
-    parser.add_argument( "-i", "--image", type=str, default=None,
+    parser.add_argument( "-i", "--image", type=str, default=argparse.SUPPRESS,
                          help="filepath or uuid of image to make a reference for." )
-    parser.add_argument( "-z", "--image-zp-prov-id", type=str, default=None, help="See description above." )
-    parser.add_argument( "--minra", type=float, default=None, help="See description above." )
-    parser.add_argument( "--maxra", type=float, default=None, help="See description above." )
-    parser.add_argument( "--mindec", type=float, default=None, help="See description above." )
-    parser.add_argument( "--maxdec", type=float, default=None, help="See description above." )
+    parser.add_argument( "--image-zp-prov-id", type=str, default=None, help="See description above." )
+    parser.add_argument( "--minra", type=float, default=argparse.SUPPRESS, help="See description above." )
+    parser.add_argument( "--maxra", type=float, default=argparse.SUPPRESS, help="See description above." )
+    parser.add_argument( "--mindec", type=float, default=argparse.SUPPRESS, help="See description above." )
+    parser.add_argument( "--maxdec", type=float, default=argparse.SUPPRESS, help="See description above." )
     parser.add_argument( "-f", "--filter", type=str, required=True, help="Filter name." )
+
+    parser.add_argument( "--name", default=argparse.SUPPRESS,
+                         help="Name of the reference set to put this reference in." )
+    parser.add_argument( "--description", default=argparse.SUPPRESS,
+                         help="Description of the refset; only used if the refset is newly created." )
+    parser.add_argument( "--refset-must-already-exist", default=argparse.SUPPRESS,
+                         help=( "Raise an exception if the refset doesn't already exist.  Only makes sense "
+                                "if you give name (either here or in config).  You probably want to this if "
+                                "you use --ignore-config-use-config-from-refset" ) )
+    parser.add_argument( "--ignore-config-use-config-from-refset", action='store_true', default=argparse.SUPPRESS,
+                         help="...er, read the ParsRefMaker.ignore...refset docstring." )
+
+    parser.add_argument( "--instrument", default=argparse.SUPPRESS, help="TODO" )
+    parser.add_argument( "-z", "--zp-prov-id", default=argparse.SUPPRESS, help="TODO" )
+
+    parser.add_argument( "--start-time", default=argparse.SUPPRESS, help="TODO" )
+    parser.add_argument( "--end-time", default=argparse.SUPPRESS, help="TODO" )
+    parser.add_argument( "--validity-start", default=argparse.SUPPRESS, help="TODO" )
+    parser.add_argument( "--validity-end", default=argparse.SUPPRESS, help="TODO" )
+    parser.add_argument( "--corner-distance", type=float, default=argparse.SUPPRESS, help="TODO" )
+    parser.add_argument( "--corner-distance-none", action='store_true', default=False )
+    parser.add_argument( "--overlap-fraction", type=float, default=argparse.SUPPRESS, help="TODO" )
+    parser.add_argument( "--coadd-overlap-fraction", type=float, default=argparse.SUPPRESS, help="TODO" )
+
+    parser.add_argument( "--min-airmass", type=float, default=argparse.SUPPRESS, help="TODO" )
+    parser.add_argument( "--max-airmass", type=float, default=argparse.SUPPRESS, help="TODO" )
+    parser.add_argument( "--min-background", type=float, default=argparse.SUPPRESS, help="TODO" )
+    parser.add_argument( "--max-background", type=float, default=argparse.SUPPRESS, help="TODO" )
+    parser.add_argument( "--min-seeing", type=float, default=argparse.SUPPRESS, help="TODO" )
+    parser.add_argument( "--max-seeing", type=float, default=argparse.SUPPRESS, help="TODO" )
+    parser.add_argument( "--seeing-quality-factor", type=float, default=argparse.SUPPRESS, help="TODO" )
+    parser.add_argument( "--min-lim-mag", type=float, default=argparse.SUPPRESS, help="TODO" )
+    parser.add_argument( "--max-lim-mag", type=float, default=argparse.SUPPRESS, help="TODO" )
+    parser.add_argument( "--min-exp-time", type=float, default=argparse.SUPPRESS, help="TODO" )
+    parser.add_argument( "--max-exp-time", type=float, default=argparse.SUPPRESS, help="TODO" )
+
+    parser.add_argument( "--min-number", type=int, default=argparse.SUPPRESS, help="TODO" )
+    parser.add_argument( "--center-min-number", type=int, default=argparse.SUPPRESS, help="TODO" )
+    parser.add_argument( "--max-number", type=int, default=argparse.SUPPRESS, help="TODO" )
+
+    parser.add_argument( "--coadd-alignment-index", default=argparse.SUPPRESS, help="TODO" )
+    parser.add_argument( "--coadd-alignment-zp", type=float, default=argparse.SUPPRESS, help="TODO" )
+    parser.add_argument( "--coadd-absolute-width", type=int, default=argparse.SUPPRESS, help="TODO" )
+    parser.add_argument( "--coadd-absolute-height", type=int, default=argparse.SUPPRESS, help="TODO" )
+    parser.add_argument( "--absolute-pixel-scale", type=float, default=argparse.SUPPRESS, help="TODO" )
+
     parser.add_argument( "-n", "--no-build", default=False, action="store_true",
                          help="Don't build a reference if one isn't found" )
     parser.add_argument( "-l", "--list-images", default=False, action="store_true",
@@ -1173,35 +1367,63 @@ def main():
     parser.add_argument( "-v", "--verbose", default=False, action="store_true",
                          help="Set log level to DEBUG (default INFO)" )
 
-    # TODO : add arugments that let us override what's in the config file?  Or just rely on config file?
-    # (Probably we want this, so we can do one-offs, but put in warnings or require a --override-config
-    # so that we don't do it willy-nilly.)
-    # parser.add_argument( "-n", "--name", required=True, help="Name of refset" )
-    # parser.add_argument( "-d", "--description", default="",
-    #                      help="Description of refset.  Only used if the refset is newly created." )
-    # parser.add_argument( "-s", "--start-time", type=str, default=None,
-    #                      help=( "YYYY-MM-DDTHH:MM:SS (may omit THH:MM:SS).  Only use images taken "
-    #                             "after this time (inclusive)" ) )
-    # parser.add_argument( "-e", "--end-time", type=str, default=None,
-    #                      help=( "YYYY-MM-DDTHH:MM:SS (may omit THH:MM:SS).  Only use images taken "
-    #                             "before this time (inclusive)" ) )
-
     args = parser.parse_args()
+    SCLogger.info( "ref_maker run with:\n"
+                   f"{reconstruct_commandline(parser, args, 'ref_maker.py')}" )
+
     kwargs = vars(args).copy()
 
     SCLogger.setLevel( "DEBUG" if kwargs['verbose'] else "INFO" )
     del kwargs['verbose']
 
-    kwargs['do_not_build'] = kwargs['no_build']
-    kwargs['identify_even_if_not_building'] = kwargs['list_images']
+    # ugly hack... but we need a way to override config defaults to None
+    if kwargs[ 'corner_distance_none' ]:
+        kwargs[ 'corner_distance' ] = None
+        kwargs[ 'overlap_fraction' ] = None
+        kwargs[ 'coadd_overlap_fraction' ] = None
+    del kwargs[ 'corner_distance_none' ]
+
+    # See if we were given an object, get the ra and dec from that
+    if 'object' in kwargs:
+        try:
+            objid = asUUID( kwargs['object'] )
+            q = sql.SQL( "SELECT ra, dec FROM objects WHERE _id={oid}" ).format( oid=objid )
+        except Exception:
+            q = sql.SQL( "SELECT ra, dec FROM objects WHERE name={name}" ).format( name=kwargs['object'] )
+        with PGDB( dictcursor=True ) as pgdb:
+            rows = pgdb.execute( q )
+            if len(rows) == 0:
+                raise ValueError( f"Object {kwargs['object']} not found." )
+            elif len(rows) > 1:
+                raise ValueError( f"Ojbect {kwargs['object']} is multiply defined; this should never happen." )
+            kwargs['ra'] = rows[0]['ra']
+            kwargs['dec'] = rows[0]['dec']
+            del kwargs['object']
+
+    # Build the things we'll pass to .run() in runkwargs, leave the constructor args in kwargs
+    runkwargs = {}
+    for k in [ 'ra', 'dec', 'image', 'image_zp_prov_id', 'minra', 'maxra', 'mindec', 'maxdec', 'filter' ]:
+        if k in kwargs:
+            runkwargs[k] = kwargs[k]
+            del kwargs[k]
+    runkwargs['do_not_build'] = kwargs['no_build']
+    runkwargs['identify_even_if_not_building'] = kwargs['list_images']
     del kwargs['no_build']
     del kwargs['list_images']
 
-    refmaker = RefMaker()
+    coaddkwargs = {}
+    for k in ( 'alignment_index', 'alignment_zp', 'absolute_width', 'absolute_height' ):
+        if f'coadd_{k}' in kwargs:
+            coaddkwargs[k] = kwargs[ f'coadd_{k}' ]
+            del kwargs[ f'coadd_{k}' ]
+
+    SCLogger.debug( f"Arguments:\n    kwargs={kwargs}\n    coaddkwargs={coaddkwargs}\n    arunkwargs={runkwargs}" )
+
+    refmaker = RefMaker( maker=kwargs, coaddition=coaddkwargs )
 
     # TODO : Process arguments that override the config file.  (See TODO above.)
 
-    ref = refmaker.run( **kwargs )
+    ref = refmaker.run( **runkwargs )
 
     if ref is None:
         SCLogger.warning( "No ref built or returned." )

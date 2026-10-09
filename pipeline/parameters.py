@@ -25,7 +25,8 @@ class Parameters:
     -------
     - add_par() to add a new parameter (mostly in the __init__).
     - add_alias() to add an alias for a parameter.
-    - overwrite() the parameters from a dictionary.
+    - merge_configs() takes lists of dictionaries and does things with them recursively
+    - override() the parameters from a dictionary.
     - augment() takes parameters from a dictionary and updates (instead of overriding dict/set parameters).
     - subconfig_update() [ see it's own docstring ]
     - to_dict() converts the non-private parameters to a dictionary.
@@ -415,7 +416,125 @@ class Parameters:
         """
         self.__aliases__[alias] = name
 
+    def _recursive_merge( self, left, right, toplevel=True ):
+        if toplevel:
+            # First, fix the keys for the real keys.
+            # This means more deepcopies than strictly necessary, but oh well.
+            if ( not isinstance( left, dict ) ) or ( not isinstance( right, dict ) ):
+                raise TypeError( f"Top level merges must all be dicts, got {type(left)} and {type(right)}" )
+            left = copy.deepcopy( left )
+            right = copy.deepcopy( right )
+            for which in [ left, right ]:
+                for key, val in which.items():
+                    newkey = self._get_real_par_name( key )
+                    if newkey != key:
+                        if key in which:
+                            raise ValueError( f"Different keys point to the same parameter: {key}, {newkey}" )
+                        which[newkey] = which[key]
+                        del which[key]
+
+        # Now we can merge
+        if isinstance( left, dict ):
+            if not isinstance( right, dict ):
+                return copy.deepcopy( right )
+            newdict = copy.deepcopy( left )
+            for key, value in right.items():
+                if key in newdict:
+                    newdict[key] = self._recursive_merge( newdict[key], right[key], toplevel=False )
+                else:
+                    newdict[key] = copy.deepcopy( right[key] )
+            return newdict
+        else:
+            return copy.deepcopy( right )
+
+    def merge_configs( self, before=[], after=[] ):
+        """Does a particular kind of merge.
+
+        It's designed for configs that have subconfigs where you might
+        want to override just parts of the subconfig without having to
+        replace the whole config.  Everyting in before is merged in
+        order, then the current value of the parameters in this object
+        are merged in, then everything in after is merged in order.
+
+        Each pairwise merge is a "left/right" merge.  left and right
+        must both be dictionaries (so before and after have to be lists
+        of dicts.)  If left[key] and right[key] are not both
+        dictionaries, then left[key] is replaced with right[key].  (So,
+        lists are fully replaced, not extended!)  Otherwise, right
+        updates left, sorta... because instead of a straight
+        left.update(right), it crawls down through both dictionaries so
+        that dictionaries of dictionaries will all have things updated.
+
+        Lots of deepcopies are done in the process, so, presuming we
+        didn't screw it up, your dictionaries should all be untouched.
+
+        For example:
+
+           left = { 'a': [ 1, 2, 3 ],
+                    'b': { 'foo': 'bar', 'baz': qux' },
+                    'c': { 'alpha': 13,
+                           'beta': 42,
+                           'gamma': { 'mercury': 1,
+                                      'venus': 2,
+                                      'earth': 3
+                                    }
+                         },
+                    'd': 'kittens',
+                    'α': 'ω'
+                 }
+
+           right = { 'a': [ 4, 5, 6 ],
+                     'b': 128,
+                     'c': { 'alpha': 137,
+                            'gamma': { 'earth': 0.,
+                                       'mars': 4
+                                     }
+                          },
+                     'e': 'puppies'
+                     'α': { 'β': 'electron',
+                            'γ': 'photon'
+                          }
+                   }
+
+        Then the resultant left/right merge would be:
+
+        { 'a': [ 4, 5, 6 ],
+          'b': 128,
+          'c': { 'alpha': 137,
+                 'beta': 42,
+                 'gamma': { 'mercury': 1,
+                            'venus': 2,
+                            'earth': 0,
+                            'mars': 4
+                          }
+               },
+          'd': 'kittens',
+          'e': 'puppies',
+          'α': { 'β': 'electron',
+                 'γ': 'photon'
+               }
+        }
+
+        """
+
+        if ( not isinstance(before, list) ) or ( not isinstance(after, list) ):
+            raise TypeError( "Must pass lists of dicts ot merge_config" )
+
+        everything = before.copy()
+        everything.append( self.to_dict() )
+        everything.extend( after )
+
+        result = {}
+        for item in everything:
+            if isinstance( item, Parameters ):
+                result = self._recursive_merge( result, item.to_dict() )
+            else:
+                result = self._recursive_merge( result, item )
+
+        self.override( result )
+
     def override(self, dictionary, ignore_addons=False):
+
         """Read parameters from a dictionary.
 
         If any parameters were already defined,
@@ -446,6 +565,8 @@ class Parameters:
         Any dict or set parameters already defined
         will be updated by the values in the dictionary,
         otherwise values are replaced by the input values.
+
+        TODO : make this recursive.  Cf. util.config.Config._merge_trees
 
         Parameters
         ----------

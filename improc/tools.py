@@ -399,11 +399,14 @@ def make_cutouts(data, x, y, size=15, fillvalue=None, dtype=None, yes_i_know_my_
 
     size = int( size )
     if ( size % 2 != 1 ) and ( not yes_i_know_my_size_is_even ):
-        raise ValueError( f"cutouts size must be even, and {size} is not." )
+        raise ValueError( f"cutouts size must not be even, and {size} is." )
 
     cutouts = np.full((len(x), size, size), fillvalue, dtype=dtype)
-    down = int(np.floor((size - 1) / 2))
-    up = int(np.ceil((size - 1) / 2))
+    # Why did we do this?  Left over from before enforced-odd cutouts?
+    # down = int(np.floor((size - 1) / 2))
+    # up = int(np.ceil((size - 1) / 2))
+    down = size // 2
+    up = size // 2
 
     for i, (x0, y0) in enumerate(zip(x, y)):
         x0, y0 = int(np.round(x0)), int(np.round(y0))

@@ -4,16 +4,19 @@ import numpy as np
 
 import h5py
 
+from psycopg import sql
+
 import sqlalchemy as sa
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.ext.declarative import declared_attr
 from sqlalchemy.schema import CheckConstraint, UniqueConstraint
 
 from improc.tools import find_and_apply_bscale
-from models.base import Base, SeeChangeBase, SmartSession, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness
+from models.base import Base, SeeChangeBase, PGDB, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness
 from models.image import Image
 from models.source_list import SourceList
 from models.enums_and_bitflags import BackgroundFormatConverter, BackgroundMethodConverter, bg_badness_inverse
+from util.util import asUUID
 
 # from util.logger import SCLogger
 
@@ -178,16 +181,16 @@ class Background(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
                 raise RuntimeError( "Error, can't figure out background image_shape.  Either explicitly pass "
                                     "image_shape, or make sure that sources_id is set, and the SourceList and "
                                     "Image are already saved to the database." )
-            with SmartSession() as session:
-                image = ( session.query( Image )
-                          .join( SourceList, Image._id==SourceList.image_id )
-                          .filter( SourceList._id==kwargs['sources_id'] )
-                         ).first()
-                if image is None:
+            with PGDB( kwargs['pgdb'] if 'pgdb' in kwargs else None ) as pgdb:
+                rows, _cols = pgdb.execute( sql.SQL( "SELECT i.width, i.height FROM images i "
+                                                     "INNER JOIN source_lists s ON s.image_id=i._id "
+                                                     "WHERE s._id={sid}" )
+                                            .format( sid=kwargs['sources_id'] ) )
+                if len(rows) == 0:
                     raise RuntimeError( "Error, can't figure out background image_shape.  Either explicitly pass "
                                         "image_shape, or make sure that sources_id is set, and the SourceList and "
                                         "Image are already saved to the database." )
-                self._image_shape = ( image.height, image.width )
+                self._image_shape = ( rows[0][1], rows[0][0] )
 
         # Manually set all properties ( columns or not )
         for key, value in kwargs.items():
@@ -288,14 +291,14 @@ class Background(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
             self.filepath = filename
         else:
             if ( sources is None ) or ( image is None ):
-                with SmartSession() as session:
+                with PGDB( dictcursor=True ) as pgdb:
                     if sources is None:
-                        sources = SourceList.get_by_id( self.sources_id, session=session )
+                        sources = SourceList.get_by_id( self.source_id, pgdb=pgdb )
                         if sources is None:
                             raise RuntimeError( "Can't invent Background filepath; "
                                                 "can't find corresponding source list." )
                     if image is None:
-                        image = Image.get_by_id( sources.image_id, session=session )
+                        image = Image.get_by_id( sources.image_id, pgdb=pgdb )
                         if image is None:
                             raise RuntimeError( "Can't invent Background filepath; "
                                                 "can't find corresponding image." )
@@ -343,7 +346,8 @@ class Background(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
                 bggrp.attrs['counts_bscale'] = counts_bscale
                 bggrp.attrs['rms_bzero'] = rms_bzero
                 bggrp.attrs['rms_bscale'] = rms_bscale
-                opts = dict(compression='gzip', chunks=(128, 128))
+                opts = dict( compression='gzip', chunks=( min(128, qcounts.shape[0]),
+                                                          min(128, qcounts.shape[1]) ) )
                 bggrp.create_dataset( 'counts', data=qcounts, **opts )
                 bggrp.create_dataset( 'rms', data=qrms, **opts )
                 del qcounts
@@ -442,9 +446,9 @@ class Background(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
 
         newbg = Background( _format = bg._format,
                             _method = bg._method,
-                            _sources_id = None,
+                            sources_id = None,
                             value = bg.value,
-                            noisg = bg.noise,
+                            noise = bg.noise,
                            )
         if bg.format == 'map':
             newbg.counts = bg.counts.copy()
@@ -453,6 +457,26 @@ class Background(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
             newbg.coeffs = bg.coeffs.copy()
             newbg.x_degree = bg.coeffs.copy()
             newbg.y_degree = bg.coeffs.copy()
+
+        return newbg
+
+    def trim( self, x0, x1, y0, y1, trimmed_sources=None, value=None, noise=None ):
+        """Make a new Background that is for an image that's trimmed from the image the current Background is for."""
+
+        newbg = Background( image_shape=(y1-y0, x1-x0),
+                            _format = self._format,
+                            _method = self._method,
+                            value = value if value is not None else self.value,
+                            noise = noise if noise is not None else self.noise,
+                            sources_id = ( trimmed_sources.id if isinstance( trimmed_sources, SourceList )
+                                           else None if trimmed_sources is None
+                                           else asUUID( trimmed_sources ) )
+                           )
+        if self.format == "map":
+            newbg.counts = self.counts[y0:y1, x0:x1].copy()
+            newbg.rms = self.rms[y0:y1, x0:x1].copy()
+        elif self.format == "polynomial":
+            raise NotImplementedError( "Trimming background not yet implemented for polynomial background." )
 
         return newbg
 

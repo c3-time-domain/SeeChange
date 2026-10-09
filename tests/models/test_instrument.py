@@ -4,7 +4,6 @@ import re
 
 import numpy as np
 
-from models.base import SmartSession
 from models.image import Image  # noqa: F401
 from models.instrument import SensorSection, Instrument, DemoInstrument
 from models.decam import DECam
@@ -216,10 +215,6 @@ def test_instrument_inheritance_full_example():
     assert e.exp_time == 0.025  # needs to be converted from ms to s
     assert e.mjd is not None
     assert e.info.get('shutter_mode') == 'ROLLING'
-
-    # allow the instrument to update with SensorSections consistent with the exposure's MJD
-    with SmartSession() as session:
-        e.update_instrument(session)
 
     im_data = e.data[0]  # load the first CCD image
     assert isinstance(im_data, np.ndarray)

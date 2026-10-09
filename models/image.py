@@ -3,6 +3,7 @@ import base64
 import hashlib
 import textwrap
 import random
+import numbers
 
 import numpy as np
 from psycopg import sql
@@ -11,9 +12,9 @@ import sqlalchemy as sa
 from sqlalchemy import orm
 
 from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import UUID as sqlUUID
 from sqlalchemy.ext.declarative import declared_attr
 from sqlalchemy.ext.hybrid import hybrid_property
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.schema import CheckConstraint, UniqueConstraint
 
 from astropy.time import Time
@@ -29,8 +30,6 @@ from models.base import (
     Base,
     SeeChangeBase,
     PGDB,
-    SmartSession,
-    PsycopgConnection,
     UUIDMixin,
     FileOnDiskMixin,
     SpatiallyIndexed,
@@ -52,7 +51,71 @@ from models.enums_and_bitflags import (
 
 import util.config as config
 
-from improc.tools import sigma_clipping
+
+# one-to-one (sorta) link of trimmed images to their parent(s)
+# Sorta want a unique constraint here, but then we'd also have to add
+#   the trimmed image provenance to this table, and that's gratuitous.
+#   So, trust the code not to generate duplicates.  (...scary...)
+#   cf: Image.trim
+image_trim_parent = sa.Table(
+    'image_trim_parent',
+    Base.metadata,
+    sa.Column( 'image_id',
+               sqlUUID,
+               sa.ForeignKey('images._id', ondelete="CASCADE", name="image_trim_image_fkey" ),
+               index=True,
+               nullable=False,
+               primary_key=True ),
+    sa.Column( 'trim_xcen',
+               sa.SmallInteger,
+               nullable=False ),
+    sa.Column( 'trim_ycen',
+               sa.SmallInteger,
+               nullable=False ),
+    sa.Column( 'parent_image_id',
+               sqlUUID,
+               sa.ForeignKey('images._id', ondelete="RESTRICT", name="image_trim_parent_image_fkey" ),
+               nullable=False,
+               index=True ),
+    sa.Column( 'parent_wcs_id',
+               sqlUUID,
+               sa.ForeignKey('world_coordinates._id', ondelete="RESTRICT", name="image_trim_parent_wcs_fkey" ),
+               nullable=True,
+               index=True )
+)
+
+
+# It is not mandatory to save warped images in subtractions.  If we do, this keeps track of it.
+#
+# Having warped_provenance_id here violates database normalizaton, since you could get the
+#   same value from looking up provenance_id in the Images table with key warped_id.  However,
+#   it's here so we can use it in a unique constraint.
+image_warp_parent = sa.Table(
+    'image_warp_parent',
+    Base.metadata,
+    sa.Column( 'warp_provenance_id',
+               sa.String,
+               sa.ForeignKey('provenances._id', ondelete="RESTRICT", name="image_warped_prov_fkey" ),
+               index=True,
+               nullable=False ),
+    sa.Column( 'warped_id',
+               sqlUUID,
+               sa.ForeignKey('images._id', ondelete="CASCADE", name="image_warped_image_fkey"),
+               index=True,
+               nullable=False,
+               primary_key=True ),
+    sa.Column( 'unwarped_zp_id',
+               sqlUUID,
+               sa.ForeignKey('zero_points._id', ondelete="RESTRICT", name="image_warped_unwarped_zp_fkey"),
+               index=True,
+               nullable=False ),
+    sa.Column( 'target_wcs_id',
+               sqlUUID,
+               sa.ForeignKey('world_coordinates._id', ondelete="RESTRICT", name="image_warped_target_wcs_fkey"),
+               index=True,
+               nullable=False ),
+    UniqueConstraint( 'unwarped_zp_id', 'target_wcs_id', 'warp_provenance_id', name="warp_unique" )
+)
 
 
 class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, HasBitFlagBadness):
@@ -104,7 +167,9 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
         nullable=False,
         server_default='false',
         index=True,
-        doc='Is this image made by stacking multiple images.'
+        doc=( 'Is this image made by stacking multiple images?  Should only be set if the images stacked '
+              'are in the database.  The image should have a _type of ComSomething.  Images with a _type of '
+              'ExternComSomething should not have is_coadd set.' )
     )
 
     coadd_alignment_target = sa.Column(
@@ -114,30 +179,49 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
         doc=( "ID of the image that was the alignment target for this coadd image, if appropriate." )
     )
 
-    def _load_coadd_component_zp_ids( self, session=None ):
-        with PsycopgConnection() as conn:
-            cursor = conn.cursor()
-            # We have to join back to image in order to get the mjd for sorting
-            cursor.execute( "SELECT z._id FROM zero_points z "
-                            "INNER JOIN image_coadd_component c ON c.zp_id=z._id "
-                            "INNER JOIN world_coordinates w ON w._id=z.wcs_id "
-                            "INNER JOIN source_lists s ON s._id=w.sources_id "
-                            "INNER JOIN images i ON s.image_id=i._id "
-                            "WHERE c.coadd_image_id=%(imid)s "
-                            "ORDER BY i.mjd",
-                            { 'imid': self.id } )
-            zpids = [ asUUID(row[0]) for row in cursor.fetchall() ]
-            if len( zpids ) > 0 and ( not self.is_coadd ):
-                raise RuntimeError( "Database corruption, there are coadd components, but image is not a coadd." )
-            self._coadd_component_zp_ids = zpids
+    def _get_coadd_component_zp_ids( self, sort=True, pgdb=None, always_load=False, missing_ok=False ):
+        if ( not always_load ) and ( not isinstance(self._coadd_component_zp_ids, config.NoValue) ):
+            return self._coadd_component_zp_ids
 
+        with PGDB( pgdb ) as pgdb:
+            if sort:
+                # We have to join back to image in order to get the mjd for sorting
+                q = sql.SQL( textwrap.dedent(
+                    """\
+                    SELECT z._id FROM zero_points z
+                    INNER JOIN image_coadd_component c ON c.zp_id=z._id
+                    INNER JOIN world_coordinates w ON w._id=z.wcs_id
+                    INNER JOIN source_lists s ON s._id=w.sources_id
+                    INNER JOIN images i ON s.image_id=i._id
+                    WHERE c.coadd_image_id={imid}
+                    ORDER BY i.mjd
+                    """
+                ) ).format( imid=self.id )
+            else:
+                q = ( sql.SQL( "SELECT zp_id FROM image_coadd_component WHERE coadd_image_id={imid}" )
+                      .format( imid=self.id ) )
+            rows, _cols = pgdb.execute( q )
+            zpids = [ asUUID(row[0]) for row in rows ]
+            if self.is_coadd:
+                if len( zpids ) == 0:
+                    if missing_ok:
+                        zpids = config.NoValue()
+                    else:
+                        raise ValueError( "Image is coadd but doesn't have any components in the database!" )
+            else:
+                if len( zpids ) > 0:
+                    raise RuntimeError( "Database corruption, there are coadd components, but image is not a coadd." )
+                zpids = None
+            return zpids
 
     @property
     def coadd_component_zp_ids( self ):
-        if self._coadd_component_zp_ids is None:
-            self._load_coadd_component_zp_ids()
+        if isinstance( self._coadd_component_zp_ids, config.NoValue ):
+            self._coadd_component_zp_ids = self._get_coadd_component_zp_ids( sort=True )
         return self._coadd_component_zp_ids
 
+
+    # NOTE : is_sub and is_coadd are redundant with _type !
     is_sub = sa.Column(
         sa.Boolean,
         nullable=False,
@@ -146,16 +230,43 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
         doc='Is this a subtraction image.'
     )
 
+    def _get_subtraction_components( self, pgdb=None, always_load=False, missing_ok=False ):
+        if ( ( not always_load ) and ( not isinstance(self._ref_id, config.NoValue) )
+             and ( not isinstance(self._new_zp_id, config.NoValue) ) ):
+            return self._ref_id, self._new_zp_id
+
+        with PGDB( pgdb ) as pgdb:
+            rows, _cols = pgdb.execute( sql.SQL( "SELECT new_zp_id, ref_id FROM image_subtraction_components "
+                                                 "WHERE image_id={me}" )
+                                        .format( me=self.id ) )
+            if len(rows) > 1:
+                raise RuntimeError( f"Database corruption, more than one image_subtraction_components row for "
+                                    f"sub image {self.id}" )
+            if len(rows) == 0:
+                if self.is_sub:
+                    if missing_ok:
+                        nv = config.NoValue()
+                        return ( nv, nv )
+                    else:
+                        raise ValueError( "Image is a subtraction, but has no subtraction components in the databse." )
+                else:
+                    return ( None, None )
+            else:
+                if self.is_sub:
+                    return ( rows[0][0], rows[0][1] )
+                else:
+                    raise ValueError( "Image is not a subtraction, but has subtraction components in the database!" )
+
+        raise RuntimeError( "You should never get here." )
+
+    def _load_subtraction_components( self, pgdb=None, always_load=False ):
+        if always_load or isinstance( self._new_zp_id, config.NoValue ) or isinstance( self._ref_id, config.NoValue ):
+            self._new_zp_id, self._ref_id = self._get_subtraction_components( pgdb=pgdb, always_load=True )
+
     @property
     def ref_id( self ):
-        if not self.is_sub:
-            return None
-        if self._ref_id is None:
-            from models.reference import image_subtraction_components
-            with SmartSession() as session:
-                self._ref_id = ( session.query( image_subtraction_components.c.ref_id )
-                                 .filter( image_subtraction_components.c.image_id==self.id )
-                                .scalar() )
+        if isinstance( self._ref_id, config.NoValue ):
+            self._load_subtraction_components()
         return self._ref_id
 
     @ref_id.setter
@@ -164,20 +275,132 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
 
     @property
     def new_zp_id( self ):
-        if not self.is_sub:
-            return None
-        if self._new_zp_id is None:
-            from models.reference import image_subtraction_components
-            with SmartSession() as session:
-                self._new_zp_id = ( session.query( image_subtraction_components.c.new_zp_id )
-                                    .filter( image_subtraction_components.c.image_id==self.id )
-                                    .scalar() )
+        if isinstance( self._new_zp_id, config.NoValue ):
+            self._load_subtraction_components()
         return self._new_zp_id
 
     @new_zp_id.setter
     def new_zp_id( self, val ):
         raise RuntimeError( "Don't" )
 
+    @property
+    def warped_ref_source_id( self ):
+        if isinstance( self._warped_ref_source_id, config.NoValue() ):
+            if self.is_sub:
+                with PGDB() as pgdb:
+                    rows = pgdb.execute( sql.SQL( "SELECT warped_ref_source_id FROM image_subtraction_components "
+                                                  "WHERE image_id={imid}" )
+                                         .format( imid=self.id ) )
+                    if len(rows) == 0:
+                        self._warped_ref_source_id = None
+                    else:
+                        self._warped_ref_source_id = rows[0][0]
+            else:
+                self._warped_ref_source_id = None
+        return self._warped_ref_source_id
+
+    @warped_ref_source_id.setter
+    def warped_ref_source_id( self, val ):
+        # validate?
+        self._warped_ref_source_id = val
+
+    is_trim = sa.Column(
+        sa.Boolean,
+        nullable=False,
+        server_default='false',
+        index=False,
+        doc='Is this image the result of a call to Image.trim'
+    )
+
+    def _get_trim_parent( self, pgdb=None, always_load=False, missing_ok=False ):
+        if ( not always_load ) and all( not isinstance( att, config.NoValue )
+                                        for att in [ '_trim_image_parent', '_trim_wcs_parent',
+                                                     '_trim_xcen', '_trim_ycen' ] ):
+            return ( self._trim_image_parent, self._trim_wcs_parent, self._trim_xcen, self._trim_ycen )
+
+        with PGDB( pgdb ) as pgdb:
+            rows, _cols = pgdb.execute( sql.SQL( "SELECT parent_image_id, parent_wcs_id, trim_xcen, trim_ycen "
+                                                  "FROM image_trim_parent WHERE image_id={me}" )
+                                        .format( me=self.id ) )
+            if len(rows) > 1:
+                raise RuntimeError( f"Database corruption, multiple trim parents for {self.id}" )
+            if self.is_trim:
+                if len(rows) == 0:
+                    if missing_ok:
+                        nv = config.NoValue()
+                        return ( nv, nv, nv, nv )
+                    else:
+                        raise ValueError( "Image is trim, but doesn't have trim parent in the database." )
+                return tuple( rows[0] )
+            else:
+                if len(rows) == 1:
+                    raise ValueError( "Image is not trim, but has trim parents in the database!" )
+                return ( None, None, None, None )
+
+        raise RuntimeError( "You should ever get here." )
+
+
+    def _load_trim_parent( self, pgdb=None, always_load=False ):
+        if always_load or any( isinstance( att, config.NoValue )
+                               for att in [ '_trim_image_parent', '_trim_wcs_parent', '_trim_xcen', '_trim_ycen' ] ):
+            ( self._trim_image_parent, self._trim_wcs_parent,
+              self._trim_xcen, self._trim_ycen ) = self._get_trim_parent( pgdb=pgdb, always_load=True )
+
+    @property
+    def trim_image_parent( self ):
+        if isinstance( self._trim_image_parent, config.NoValue ):
+            self._load_trim_parent()
+        return self._trim_image_parent
+
+    @property
+    def trim_wcs_parent( self ):
+        if isinstance( self._trim_image_parent, config.NoValue ):
+            self._load_trim_parent()
+        return self._trim_wcs_parent
+
+    @property
+    def trim_xcen( self ):
+        if isinstance( self._trim_image_parent, config.NoValue ):
+            self._load_trim_parent()
+        return self._trim_xcen
+
+    @property
+    def trim_ycen( self ):
+        if isinstance( self._trim_image_parent, config.NoValue ):
+            self._load_trim_parent()
+        return self._trim_ycen
+
+
+    def _get_warp_parent( self, pgdb=None, always_load=False ):
+        if ( not always_load ) and all( not isinstance( att, config.NoValue )
+                                        for att in [ '_warp_parent_source_zp', '_warp_parent_target_wcs' ] ):
+            return ( self._warp_parent_source_zp, self._warp_parent_target_wcs )
+
+        with PGDB( pgdb ) as pgdb:
+            rows, _cols = pgdb.execute( sql.SQL( "SELECT unwarped_zp_id, target_wcs_id FROM image_warp_parent "
+                                                 "WHERE warped_id={me}" ).format( me=self.id ) )
+            if len(rows) == 0:
+                return ( None, None )
+            else:
+                return tuple( rows[0] )
+
+    def _load_warp_parent( self, pgdb, always_load=False ):
+        if always_load or any( isinstance( att, config.NoValue )
+                               for att in [ '_warp_parent_source_zp', '_warp_parent_target_wcs' ] ):
+            self._warp_parent_source_zp, self._warp_parent_target_wcs = self._get_warp_parent( pgdb=pgdb,
+                                                                                               always_load=True )
+
+    @property
+    def warp_parent_source_zp( self ):
+        if isinstance( self._warp_parent_source_zp, config.NoValue ):
+            self._load_warp_parent()
+        return self._warp_parent_source_zp
+
+    @property
+    def warp_parent_target_wcs( self ):
+        if isinstance( self._warp_parent_target_wcs, config.NoValue ):
+            self._load_warp_parent()
+        return self._warp_parent_target_wcs
 
     _type = sa.Column(
         sa.SMALLINT,
@@ -463,10 +686,17 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
         self._nandata = None  # a copy of the image data, only with NaNs at each flagged point. Lazy calculated.
         self._nanscore = None  # a copy of the image score, only with NaNs at each flagged point. Lazy calculated.
 
-        self._coadd_component_zp_ids = None
-        self._ref_id = None
-        self._ref_image_id = None
-        self._new_zp_id = None
+        self._coadd_component_zp_ids = config.NoValue()
+        self._ref_id = config.NoValue()
+        self._ref_image_id = config.NoValue()
+        self._new_zp_id = config.NoValue()
+        self._warped_ref_source_id = config.NoValue()
+        self._trim_image_parent = config.NoValue()
+        self._trim_wcs_parent = config.NoValue()
+        self._trim_xcen = config.NoValue()
+        self._trim_ycen = config.NoValue()
+        self._warp_parent_source_zp = config.NoValue()
+        self._warp_parent_target_wcs = config.NoValue()
 
         self._instrument_object = None
         self._bitflag = 0
@@ -513,7 +743,7 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
         # if this_object_session is not None:  # if just loaded, should usually have a session!
         #     self.load_upstream_products(this_object_session)
 
-    def insert( self, session=None ):
+    def insert( self, pgdb=None, session=None, nocommit=False, load_defaults=False ):
         """Add the Image object to the database.
 
         In any events, if there are no exceptions, self.id will be set upon
@@ -525,64 +755,173 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
 
         Parameters
         ----------
-          session: SQLAlchemy Session, default None
+          pgdb, session: PGDB, psycopg.Connection, psycogp.Cursor, or sqlalchemy Session, or None
             Usually you do not want to pass this; it's mostly for other
-            upsert etc. methods that cascade to this.
+            upsert etc. methods that cascade to this.  The two things
+            are synonyms; if both are given, pgdb takes precedence.
+
+          nocommit: bool, default False
+            If True, run the statements to insert records to the
+            relevante tables, but don't actually commit the database.
+            Do this if you want the insert to be inside a transaction
+            you've started on pgdb.  It doesn't make sense to set
+            nocommit=True unless you've passed something in pgdb.
 
         """
 
-        with SmartSession( session ) as sess:
-            # Insert the image.  If this raises an exception (because the image already exists),
-            # then we won't futz with the image_coadd_component_table.
-            SeeChangeBase.insert( self, session=sess )
+        with PGDB( pgdb if pgdb is not None else session ) as pgdb:
+            SeeChangeBase.insert( self, pgdb=pgdb, nocommit=True, load_defaults=load_defaults )
 
-            if ( self._coadd_component_zp_ids is not None ) and ( len(self._coadd_component_zp_ids) > 0 ):
-                for ui in self._coadd_component_zp_ids:
-                    sess.execute( sa.text( "INSERT INTO image_coadd_component(zp_id,coadd_image_id) "
-                                           "VALUES (:them,:me)" ),
-                                  { "them": ui, "me": self.id } )
-                sess.commit()
-
-            if ( self._ref_id is not None ) or ( self._new_zp_id is not None ):
-                if ( self._ref_id is None ) or ( self._new_zp_id is None ):
-                    raise RuntimeError( "Either neither or both of _ref_id and _new_zp_id must be None" )
-                sess.execute( sa.text( "INSERT INTO image_subtraction_components(image_id,new_zp_id,ref_id) "
-                                       "VALUES (:me,:zp,:ref)" ),
-                              { "me": self.id, "zp": self._new_zp_id, "ref": self._ref_id } )
-                sess.commit()
-
-
-    def upsert( self, session=None, load_defaults=False ):
-        with SmartSession( session ) as sess:
-            SeeChangeBase.upsert( self, session=sess, load_defaults=load_defaults )
-
-            # We're just going to merrily try to set all the coadd component ids and not care
-            #   if we get already existing errors.  Assume that if we get one, we'll get 'em
-            #   all, because somebody else has already loaded all of them.
-            # (I hope that's right.  But, in reality, it's extremely unlikely that two processes
-            # will be trying to upsert the same image at the same time.)
-
-            if ( self._coadd_component_zp_ids is not None ) and ( len(self._coadd_component_zp_ids) > 0 ):
-                try:
+            if self.is_coadd:
+                if isinstance( self._coadd_component_zp_ids, config.NoValue ):
+                    raise ValueError( "Error inserting coadd image, missing _coadd_component_zp_ids" )
+                else:
                     for ui in self._coadd_component_zp_ids:
-                        sess.execute( sa.text( "INSERT INTO image_coadd_component(zp_id,coadd_image_id) "
-                                               "VALUES (:them,:me)" ),
-                                      { "them": ui, "me": self.id } )
-                        sess.commit()
-                except IntegrityError as ex:
-                    if 'duplicate key value violates unique constraint "image_coadd_component_pkey"' in str(ex):
-                        sess.rollback()
-                    else:
-                        raise
+                        pgdb.execute( sql.SQL( "INSERT INTO image_coadd_component(zp_id,coadd_image_id) "
+                                               "VALUES ({them},{me})"
+                                              ).format( them=ui, me=self.id ) )
 
-            # Update the image_subtraction_components_table ; here, we can just
-            #   do a straight-up postgres upsert
-            if ( self._ref_id is not None ) or ( self._new_zp_id is not None ):
-                sess.execute( sa.text( "INSERT INTO image_subtraction_components(image_id,new_zp_id,ref_id) "
-                                       "VALUES (:me,:zp,:ref) "
-                                       "ON CONFLICT (image_id) DO UPDATE SET new_zp_id=:zp, ref_id=:ref" ),
-                              { "me": self.id, "zp": self._new_zp_id, "ref": self._ref_id } )
-                sess.commit()
+            if self.is_sub:
+                if isinstance( self._ref_id, config.NoValue ) or isinstance( self._new_zp_id, config.NoValue ):
+                    raise RuntimeError( "Error inserting sub image, missing subtraction components" )
+                wrpsrc = ( None if isinstance( self._warped_ref_source_id, config.NoValue )
+                           else self._warped_ref_source_id )
+                pgdb.execute( sql.SQL( textwrap.dedent(
+                    """\
+                    INSERT INTO image_subtraction_components(image_id,new_zp_id,ref_id,warped_ref_source_id)
+                    VALUES ({me},{zp},{ref},{wrpsrc})
+                    """ ) ).format( me=self.id, zp=self._new_zp_id, ref=self._ref_id, wrpsrc=wrpsrc ) )
+
+            if self.is_trim:
+                if any( isinstance( getattr(self, att), config.NoValue )
+                        for att in [ '_trim_image_parent', '_trim_wcs_parent', '_trim_xcen', '_trim_ycen' ] ):
+                    raise ValueError( "Error inserting trim image, missing expected properties." )
+                q = sql.SQL( textwrap.dedent(
+                    """\
+                    INSERT INTO image_trim_parent(image_id, parent_image_id, parent_wcs_id,
+                                                  trim_xcen, trim_ycen )
+                    VALUES ({imid},{parid},{wcsid},{xcen},{ycen})
+                    """
+                ) ).format( imid=self.id, parid=self._trim_image_parent, wcsid=self._trim_wcs_parent,
+                            xcen=self._trim_xcen, ycen=self._trim_ycen )
+                pgdb.execute_nofetch( q )
+
+            if self.type in ( 'Warped', 'ComWarped', 'DiffWarped', 'ComDiffWarped' ):
+                if any( isinstance( getattr(self, att), config.NoValue ) or ( getattr(self, att) is None )
+                        for att in [ '_warp_parent_source_zp', '_warp_parent_target_wcs' ] ):
+                    raise ValueError( "Error inserting warped image, missing warp parent properties." )
+                q = sql.SQL( textwrap.dedent(
+                    """\
+                    INSERT INTO image_warp_parent(warped_id, unwarped_zp_id, target_wcs_id, warp_provenance_id)
+                    VALUES( {imid}, {zpid}, {wcsid}, {prov} )
+                    """
+                ) ).format( imid=self.id, zpid=self._warp_parent_source_zp, wcsid=self._warp_parent_target_wcs,
+                            prov=self.provenance_id )
+                pgdb.execute_nofetch( q )
+
+            if not nocommit:
+                pgdb.commit()
+
+
+    def upsert( self, pgdb=None, session=None, load_defaults=False, nocommit=False ):
+        with PGDB( pgdb if pgdb is not None else session ) as pgdb:
+            SeeChangeBase.upsert( self, pgdb=pgdb, load_defaults=load_defaults, nocommit=True )
+
+            # For all the associated tables, if *all* the various underscore
+            #   properties exist, validate them, or, if nothing is there,
+            #   insert them.  If they don't all exist, just assume that the
+            #   image was already loaded and those values are OK.
+
+            if self.is_coadd:
+                if self._coadd_component_zp_ids is None:
+                    raise ValueError( "_coadd_component_zp_ids None for coadd image, that shouldn't happen" )
+                zpids = self._get_coadd_component_zp_ids( sort=True, pgdb=pgdb, always_load=True, missing_ok=True )
+                if isinstance( self._coadd_component_zp_ids, config.NoValue ):
+                    if isinstance( zpids, config.NoValue ) or ( zpids is None ):
+                        raise ValueError( "Failure upserting coadd image, no coadd components in database, "
+                                          "and no coadd components in object." )
+                    self._coadd_component_zp_ids = zpids
+                else:
+                    if isinstance( zpids, config.NoValue ):
+                        for ui in self._coadd_component_zp_ids:
+                            pgdb.execute( sql.SQL( "INSERT INTO image_coadd_component(zp_id,coadd_image_id) "
+                                                   "VALUES ({them},{me})"
+                                                  ).format( them=ui, me=self.id ) )
+                    else:
+                        if zpids != self._coadd_component_zp_ids:
+                            raise ValueError( "Error upserting image: coadd components in database do not "
+                                              "match what's in the object." )
+
+            if self.is_sub:
+                new_zp_id, ref_id = self._get_subtraction_components( pgdb=pgdb, always_load=True, missing_ok=True )
+                if isinstance( new_zp_id, config.NoValue ):
+                    if isinstance( self._new_zp_id, config.NoValue ) or isinstance( self._ref_id, config.NoValue ):
+                        raise ValueError( "Error upserting image, no subtraction components in database or "
+                                          "in object" )
+                    pgdb.execute( sql.SQL( "INSERT INTO image_subtraction_components(image_id,new_zp_id,ref_id) "
+                                           "VALUES ({me},{zp},{ref}) "
+                                          ).format( me=self.id, zp=self._new_zp_id, ref=self._ref_id ) )
+                else:
+                    if isinstance( self._new_zp_id, config.NoValue ):
+                        self._new_zp_id = new_zp_id
+                    if isinstance( self._ref_id, config.NoValue ):
+                        self._ref_id = ref_id
+                    if ( self._ref_id != ref_id ) or ( self._new_zp_id != new_zp_id ):
+                        raise ValueError( "Subtraction components in database don't match what's in object" )
+
+            if self.is_trim:
+                ( trim_image_parent, trim_wcs_parent,
+                  trim_xcen, trim_ycen ) = self._get_trim_parent( pgdb=pgdb, always_load=True, missing_ok=True )
+                if isinstance( trim_image_parent, config.NoValue ):
+                    if any( isinstance( getattr( self, att ), config.NoValue )
+                            for att in ( '_trim_image_parent', '_trim_wcs_parent', '_trim_xcen', '_trim_ycen' ) ):
+                        raise ValueError( "Error upserting image, no trim components in database and "
+                                          "missing trim components in object." )
+                    q = sql.SQL( textwrap.dedent(
+                        """\
+                        INSERT INTO image_trim_parent(image_id, parent_image_id, parent_wcs_id,
+                        trim_xcen, trim_ycen )
+                        VALUES ({imid},{parid},{wcsid},{xcen},{ycen})
+                        """
+                    ) ).format( imid=self.id, parid=self._trim_image_parent,
+                                wcsid=self._trim_wcs_parent, xcen=self._trim_xcen, ycen=self._trim_ycen )
+                    pgdb.execute( q )
+                else:
+                    uhoh = False
+                    for att, val in zip( [ '_trim_image_parent', '_trim_wcs_parent', '_trim_xcen', '_trim_ycen' ],
+                                         [ trim_image_parent, trim_wcs_parent, trim_xcen, trim_ycen ] ):
+                        if isinstance( getattr( self, att ), config.NoValue() ):
+                            setattr( self, att, val )
+                        elif getattr( self, att ) != val:
+                            uhoh = True
+                    if uhoh:
+                        raise ValueError( "Error upserting image, image trim components in database do not "
+                                          "match what is in object." )
+
+            if self.type in ( 'Warped', 'ComWarped', 'DiffWarped', 'ComDiffWarped' ):
+                warp_parent_source_zp, warp_parent_target_wcs = self._get_warp_parent( pgdb=pgdb, always_load=True )
+                if ( warp_parent_source_zp is None ) != ( warp_parent_target_wcs is None ):
+                    raise RuntimeError( "This should never happen." )
+                if warp_parent_source_zp is None:
+                    if any( isinstance( getattr(self, att), config.NoValue ) or ( getattr(self, att) is None )
+                            for att in [ '_warp_parent_source_zp', '_warp_parent_target_wcs' ] ):
+                        raise ValueError( "Error upserting image, missing warp parent info" )
+                    q = sql.SQL( textwrap.dedent(
+                        """\
+                        INSERT INTO image_warp_parent(warped_id, unwarped_zp_id, target_wcs_id)
+                        VALUES( {imid}, {zpid}, {wcsid} )
+                        """
+                    ) ).format( imid=self.id, zpid=self._warp_parent_source_zp, wcsid=self._warp_parent_target_wcs )
+                    pgdb.execute_nofetch( q )
+                else:
+                    if any( getattr( self, att ) != val
+                            for att, val in zip( [ '_warp_parent_source_zp', '_warp_parent_target_wcs' ],
+                                                 [ warp_parent_source_zp, warp_parent_target_wcs ] ) ):
+                        raise ValueError( "Error upserting image, image warp parents in database do not "
+                                          "match what is in object." )
+
+            if not nocommit:
+                pgdb.commit()
 
 
     def set_corners_from_header_wcs( self, wcs=None, setradec=False, width=None, height=None ):
@@ -650,7 +989,7 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
             raise RuntimeError( "Exposure id can't be none to use Image.from_exposure" )
 
 
-        new = cls()
+        new = cls.create()
 
         new.exposure_id = exposure.id
 
@@ -800,6 +1139,8 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
             'telescope',
             'filter',
             'section_id',
+            'width',
+            'height',
             'project',
             'target',
             'preproc_bitflag',
@@ -814,12 +1155,13 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
             'coadd_alignment_target',
             'is_coadd',
             'is_sub',
+            'is_trim',
             '_bitflag',
             '_upstream_bitflag',
             '_format',
             '_type',
         ]
-        new = cls()
+        new = cls.create()
         for att in copy_attributes:
             if att == 'image':
                 if ( not no_copy_data ) and ( image.data is not None ):
@@ -1051,11 +1393,11 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
         return output
 
     @classmethod
-    def from_ref_and_new(cls, ref, new_image):
-        return cls.from_new_and_ref(new_image, ref)
+    def from_ref_and_new(cls, **kwargs):
+        return cls.from_new_and_ref( **kwargs )
 
     @classmethod
-    def from_new_and_ref(cls, new_image_zp, ref, new_image=None, width=None, height=None):
+    def from_new_and_ref(cls, new_image_zp=None, ref=None, new_image=None, width=None, height=None):
         """Create a new Image object from a Reference object and a new Image object.
         This is the first step in making a difference image.
 
@@ -1077,7 +1419,10 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
         new_image: Image or None
             If you pass this, then it must be the Image that goes along
             with ZeroPoint.  Normally, this function will search the
-            database to find the right Image.
+            database to find the right Image.  When searching the database,
+            it will thrown out difference images and warped images -- those
+            will share the same zero_points row as the parent image.  If you
+            are trying to work on such an image, then you must pass new_image.
 
         width, height: int, default None
             You probably never want to set these, because they will
@@ -1105,21 +1450,29 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
         if ( new_image is not None ) and ( not isinstance( new_image, Image ) ):
             raise TypeError( f"If you pass new_image, it must be an Image, not a {type(new_image)}" )
 
-        with SmartSession() as sess:
-            ref._load_ref_data_products( session=sess )
-            ref_image = Image.get_by_id( ref.image.id, session=sess )
+        with PGDB( dictcursor=True ) as pgdb:
+            ref._load_ref_data_products( pgdb=pgdb )
+            ref_image = Image.get_by_id( ref.image.id, pgdb=pgdb )
             if new_image is None:
-                from models.source_list import SourceList
-                from models.world_coordinates import WorldCoordinates
-                from models.zero_point import ZeroPoint
-                new_image = ( sess.query( Image )
-                              .join( SourceList, SourceList.image_id==Image._id )
-                              .join( WorldCoordinates, WorldCoordinates.sources_id==SourceList._id )
-                              .join( ZeroPoint, ZeroPoint.wcs_id==WorldCoordinates._id )
-                              .filter( ZeroPoint._id == new_image_zp.id ) ).first()
-                if new_image is None:
+                rows = pgdb.execute( sql.SQL( textwrap.dedent(
+                    """\
+                    SELECT i.* FROM images i
+                    INNER JOIN source_lists s ON s.image_id=i._id
+                    INNER JOIN world_coordinates w ON w.sources_id=s._id
+                    INNER JOIN zero_points z ON z.wcs_id=w._id
+                    WHERE z._id={zpid}
+                      AND i._type NOT IN ({types})
+                    """
+                ) ).format( zpid=new_image_zp.id,
+                            types=sql.SQL(",").join( [ ImageTypeConverter.to_int(t) for t in ( 'Diff', 'Warped' ) ] )
+                           ) )
+                if len(rows) == 0:
                     raise RuntimeError( f"Database corruption: Image corresponding to ZeroPoint "
                                         f"{new_image_zp} not found!" )
+                elif len(rows) > 1:
+                    raise RuntimeError( f"Found more than one image corresponding to ZeroPoint "
+                                        f"{new_image_zp}; this should never happen." )
+                new_image = Image.create( **(rows[0]) )
 
         output = Image( nofile=True )
 
@@ -1218,7 +1571,389 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
     def __str__(self):
         return self.__repr__()
 
-    def invent_filepath(self, name_convention=None ):
+
+    @classmethod
+    def get_trim_provs( cls, width, height, wcs_prov=None, zp_prov=None,
+                        upstreams=[], save=False, provtag=None, pgdb=None ):
+        upstreams = upstreams.copy()
+
+        if wcs_prov is not None:
+            if not isinstance( wcs_prov, Provenance ):
+                wcs_prov_obj = Provenance.get_by_id( wcs_prov, pgdb=pgdb )
+                if wcs_prov_obj is None:
+                    raise ValueError( f"Failed to find wcs prov {wcs_prov}" )
+                wcs_prov = wcs_prov_obj
+            upstreams.append( wcs_prov )
+            use_wcs = True
+        else:
+            use_wcs = False
+
+        trimimprov = Provenance( process='Image.trim',
+                                 parameters={ 'width': width, 'height': height, 'used_wcs': use_wcs },
+                                 upstreams=upstreams )
+        if wcs_prov is not None:
+            trimsrcprov = Provenance( process='Image.trim.sources', upstreams=[trimimprov] )
+            trimwcsprov = Provenance( process='Image.trim.wcs', upstreams=[trimsrcprov] )
+        else:
+            trimsrcprov = None
+            trimwcsprov = None
+
+        if zp_prov is not None:
+            # This one's a little weird... at least as of right now, zeropoint assumes
+            #   a constant zeropoint for the whole image.  So, the trimmed zeropoint
+            #   will be numerically identical to the original image zeroppoint.  That
+            #   means nothing in the trimming is part of the trimmed zeropoint provenance
+            #   upstreams.
+            if not isinstance( zp_prov, Provenance ):
+                zp_prov_obj = Provenance.get_by_id( zp_prov, pgdb=pgdb )
+                if zp_prov_obj is None:
+                    raise ValueError( f"Failed to get zp prov {zp_prov}" )
+                zp_prov = zp_prov_obj
+            trimzpprov = Provenance( process='Image.trim.zp', upstreams=[zp_prov] )
+        else:
+            trimzpprov = None
+
+        if save:
+            with PGDB( pgdb ) as pgdb:
+                provs = [ trimimprov ]
+                trimimprov.insert_if_needed( pgdb=pgdb )
+                if wcs_prov is not None:
+                    provs.extend( [ trimsrcprov, trimwcsprov ] )
+                    trimsrcprov.insert_if_needed( pgdb=pgdb )
+                    trimwcsprov.insert_if_needed( pgdb=pgdb )
+                if zp_prov is not None:
+                    provs.append( trimzpprov )
+                    trimzpprov.insert_if_needed( pgdb=pgdb )
+                if provtag is not None:
+                    Provenance.addtag( provtag, provs, pgdb=pgdb )
+        else:
+            if provtag is not None:
+                SCLogger.warning( "provtag was not None, but save was False, so provtag was ignored." )
+
+        return trimimprov, trimsrcprov, trimwcsprov, trimzpprov
+
+
+    def trim( self, x0, x1, y0, y1,
+              adjust_limits=False,
+              sources=None,
+              bg=None,
+              psf=None,
+              wcs=None,
+              zp=None,
+              save_to_db=False, save_prov=False, provtag=None, no_load=False,
+              pgdb=None ):
+        """Return an Image (etc.) that's a cutout of this image.
+
+        Returns a new Image with a trimmed data, weight, and flags
+        array.  If wcs is given (strongly recommended) will update all
+        coordate (ra/dec, etc.) fields, otherwise they will be copied
+        from this object... which means that the coordinate fields will
+        be quite wrong in the returned Image.
+
+        The new Image will have its filepath set to a call to the result
+        of self.invent_filepath(), with "_{x}_{y}" (the center of the
+        trim region) appended before the suffix.  (This is sufficient to
+        make the image unique, because the width and height are in the
+        provenance.)
+
+        If self.provenance_id is not None, then a Provenance will be
+        loaded or created for the trimmed image which has process
+        "Image.trim" and parameters { "width": x1-x0, "height": y1-y0,
+        "used_wcs": wcs is not None }.  It will have
+        self.provenance_id as an upstream.  If save_prov is True, this
+        provenance will be saved to the databse.  If provtag is not
+        None, this provenance will be tagged with the indicated tag.  If
+        there are any conflicts in all of this, an exception will be
+        raised.
+
+        No FITS header copying is done.
+
+        Parameters
+        ----------
+          x0, x1, y0, y1: int, required
+             The minimum (inclusive)/maximum (exclusive) pixel limits of
+             the trimmed region.
+
+          sources: SoureList, default None
+             SourceList that goes with wcs.  Required if wcs is not None.
+
+          bg: Background, default None
+             Background that goes with SourceList
+
+          psf: PSF, default None
+             PSF that goes with SourceList
+
+          wcs: WorldCoordinates, default None
+             If given, will update all coordinate fields of the image to
+             be right for the trimmed image (assuming the wcs is right).
+             Will also return the wcs for the trimmed image.  Requires
+             sources.  Warning: if wcs is not given, then ra, dec,
+             etc. in the image will all be wrong!
+
+          zp: ZeroPoint, default None
+             yadda yadda yadda
+
+          save_prov: bool, default False
+             If True, make sure the Provenance of the trimmed image is
+             saved to the database.
+
+          provtag: str, deafult None
+             If not None, tag the Provenance of the trimmed image with
+             this tag.  Requires save_prov to be True.
+
+          save_to_db: bool, default False
+             If True, then save everything created to the database.  If
+             this is True, requires save_prov to also be True.  (Note
+             that provenances may be separately saved if this is False
+             based the value of save_prov.)  If you intend on saving to
+             the database, it's a good idea to do this here rather than
+             yourself, because this makes sure all the fiddly stuff gets
+             done.  But, this defaults to False so that callers can
+             collect things for efficiency.
+
+             For this to work, both self and wcs (if wcs is not None)
+             must already be saved to the database.
+
+          no_load: bool, default False
+             Normally, if self.provenance_id is not None, this function
+             will try to read the trimmed image from the database, only
+             generating it if it's not found.  Set this to False to
+             always generate it.  If no_load is True, save_to_db must be
+             False.
+
+          adjust_limits: bool, default False
+             Normally, if x0, x1, y0, or y1 are outside the bounds of
+             the image, an exception will be raised.  Set this to True
+             to instead just have it pull in that limit.
+
+          pgdb: PGDB, psycopg.Connection, psycopg.Cursor, or sa Session, default None
+             Database connection to use.  If not given, will open and
+             close a new one if one is needed.
+
+        Returns
+        -------
+           dict with keys:
+              'image' : Image, the trimmed image
+              'sources': SourceList, the trimmed sources, *if* sources was passed
+              'bg': Background, the trimmed background, *if* bg was passed
+              'psf': PSF, the trimmed PSF, *if* psf was passed
+              'wcs': WorldCoordinates, the trimmed wcs, *if* wcs was passed
+              'zp': ZeroPoint, the trimmed zeropoint, *if* zp was passed
+              provenances: dict of { str: Provenance or None }
+                           with keys 'image', 'sources', 'wcs', 'zp'
+              limits: ( x0, x1, y0, y1 )
+
+              limits are the limits actually used.  These will be the
+              same as the passed x0, x1, y0, y1, unless adjust_limits
+              was True and the passed limits went off of the edge of the
+              image.
+
+        """
+
+        pgdb_in = pgdb
+
+        # a bit of validation
+        if save_to_db and ( not save_prov ):
+            raise ValueError( "save_to_db requires save_prov" )
+        if save_to_db and no_load:
+            raise ValueError( "save_to_db requires no_load to be False" )
+        if save_prov and ( self.provenance_id is None ):
+            raise ValueError( "save_prov was set but self.provenance_id is None" )
+        if ( provtag is not None ) and ( not save_prov ):
+            raise ValueError( "Passing a provtag requires save_prov=True" )
+        if not all( isinstance( i, numbers.Integral ) for i in [ x0, x1, y0 ,y1 ] ):
+            raise TypeError( "x0, x1, y0, y1 must all be integers." )
+        for val, name in zip( [ bg, psf, wcs ], [ 'bg', 'psf', 'wcs' ] ):
+            if ( val is not None ) and ( sources is None ):
+                raise ValueError( f"Passing {name} requires passing sources" )
+        if ( zp is not None ) and ( wcs is None ):
+            raise ValueError( "Passing zp requires passing wcs" )
+
+        # Calculate xcen and ycen *before* adjusting for limits, because we want
+        #   the filepath to reflect the aspirational center.
+        xcen = int( np.floor( (x0 + x1) / 2. ) )
+        ycen = int( np.floor( (y0 + y1) / 2. ) )
+        width = x1 - x0
+        height = y1 - y0
+
+        if adjust_limits:
+            x0 = max( x0, 0 )
+            x1 = min( x1, self.data.shape[1] )
+            y0 = max( y0, 0 )
+            y1 = min( y1, self.data.shape[0] )
+        else:
+            if ( x0 < 0 ) or ( x1 > self.data.shape[1] ) or ( y0 < 0 ) or ( y1 > self.data.shape[0] ):
+                raise ValueError( "Trim limits [{x0}:{x1}, {y0}:y1}] are outside image borders." )
+
+        trimimprov = trimsrcprov = trimwcsprov = None
+        trimim = trimsrc = trimbg = trimpsf = trimwcs = trimzp = None
+
+        if self.provenance_id is not None:
+            # Make the provenances
+            with PGDB( pgdb ) as tmppgdb:
+                provenance = Provenance.get( self.provenance_id, pgdb=tmppgdb )
+                wcsprov = None if wcs is None else Provenance.get( wcs.provenance_id, pgdb=tmppgdb )
+                zpprov = None if zp is None else Provenance.get( zp.provenance_id, pgdb=tmppgdb )
+                ( trimimprov,
+                  trimsrcprov,
+                  trimwcsprov,
+                  trimzpprov ) = self.get_trim_provs( width, height, upstreams=[provenance], wcs_prov=wcsprov,
+                                                      zp_prov=zpprov, save=save_prov, provtag=provtag, pgdb=tmppgdb )
+
+            # Try to load the image unless told not to.
+            # Note that just having xcen and ycen, without width and height, still uniquely
+            #   identifies the image, becasue the trim provenance includes width and height
+            #   (see get_trim_provs).
+            if not no_load:
+                with PGDB( pgdb_in, dictcursor=True ) as pgdb:
+                    q = sql.SQL( textwrap.dedent(
+                        """\
+                        SELECT i.* FROM images i
+                        INNER JOIN image_trim_parent t ON i._id=t.image_id
+                        WHERE i.provenance_id={prov}
+                          AND t.parent_image_id={parentim}
+                          AND t.parent_wcs_id{wcscondition}
+                          AND t.trim_xcen={xcen}
+                          AND t.trim_ycen={ycen}
+                        """
+                    ) ).format( prov=trimimprov.id, parentim=self.id, xcen=xcen, ycen=ycen,
+                                wcscondition=( sql.SQL("={wcsid}").format(wcsid=wcs.id) if wcs is not None
+                                               else sql.SQL( " IS NULL" ) ) )
+                    rows = pgdb.execute( q )
+                    if len(rows) > 1:
+                        raise RuntimeError( "Database corruption, trimmed image is in database more than once." )
+                    elif len(rows) == 1:
+                        trimim = Image.create( **(rows[0]) )
+
+                        # Avoid circular imports
+                        from models.source_list import SourceList
+                        from models.background import Background
+                        from models.psf import PSF
+                        from models.world_coordinates import WorldCoordinates
+                        from models.zero_point import ZeroPoint
+
+                        def _get_the_thing( pgdb, cls, parentcol, parentid, provid=None ):
+                            table = cls.__tablename__
+                            q = ( sql.SQL( "SELECT t.* FROM {table} t WHERE t.{parentcol}={parentid}" )
+                                  .format( table=sql.Identifier(table), parentcol=sql.Identifier(parentcol),
+                                           parentid=parentid ) )
+                            if provid is not None:
+                                q += sql.SQL( " AND t.provenance_id={prov}" ).format( prov=provid )
+                            rows = pgdb.execute( q )
+                            if len(rows) > 1:
+                                raise RuntimeError( "Databse corrumption trimmed {table} is in the "
+                                                    "database more than once." )
+                            return cls.create( **(rows[0]) ) if len(rows) == 1 else None
+
+                        if sources is not None:
+                            trimsrc = _get_the_thing( pgdb, SourceList, "image_id", trimim.id, trimsrcprov.id )
+                            if trimsrc is not None:
+                                trimbg = _get_the_thing( pgdb, Background, "sources_id", trimsrc.id )
+                                trimpsf = _get_the_thing( pgdb, PSF, "sources_id", trimsrc.id )
+
+                            if ( trimsrc is not None ) and ( wcs is not None ):
+                                trimwcs = _get_the_thing( pgdb, WorldCoordinates, "sources_id", trimsrc.id,
+                                                          trimwcsprov.id )
+
+                            if ( trimwcs is not None ) and ( zp is not None ):
+                                trimzp = _get_the_thing( pgdb, ZeroPoint, "wcs_id", trimwcs.id,
+                                                         trimzpprov.id )
+
+        # Make the image stuff we didn't load
+        to_save = {}
+
+        if trimim is None:
+            to_save['image'] = {}
+            trimim = Image.copy_image( self, no_copy_data=True )
+            trimim.data = self.data[ y0:y1, x0:x1 ].copy()
+            trimim.weight = self.weight[ y0:y1, x0:x1 ].copy() if self.weight is not None else None
+            trimim.flags = self.flags[ y0:y1, x0:x1 ].copy() if self.flags is not None else None
+            trimim.width = trimim.data.shape[1]
+            trimim.height = trimim.data.shape[0]
+            trimim.is_trim = True
+            if trimimprov is not None:
+                trimim.provenance_id = trimimprov.id
+                trimim.filepath = trimim.invent_filepath( extra=f"_{xcen}_{ycen}" )
+            else:
+                trimim.provenance_id = None
+                trimim.filepath = None
+        trimim._trim_image_parent = self.id
+        trimim._trim_wcs_parent = wcs.id if wcs is not None else None
+        trimim._trim_xcen = xcen
+        trimim._trim_ycen = ycen
+
+        if sources is not None:
+            if trimsrc is None:
+                to_save['sources'] = { 'image': trimim }
+                trimsrc = sources.trim( x0, x1, y0, y1, trimmed_image=trimim )
+                trimsrc.provenance_id = None if trimsrcprov is None else trimsrcprov.id
+
+            if trimbg is None:
+                to_save['bg'] = { 'image': trimim, 'sources': trimsrc }
+                trimbg = bg.trim( x0, x1, y0, y1, trimmed_sources=trimsrc )
+
+            if trimpsf is None:
+                to_save['psf'] = { 'image': trimim, 'sources': trimsrc }
+                trimpsf = psf.trim( x0, x1, y0, y1, trimmed_sources=trimsrc )
+
+            if ( trimwcs is None ) and ( wcs is not None ):
+                to_save['wcs'] = { 'image': trimim }
+                trimwcs = wcs.trim( x0, x1, y0, y1 )
+                trimwcs.sources_id = trimsrc.id
+                trimwcs.provenance_id = None if trimwcsprov is None else trimwcsprov.id
+                trimwcs.set_corners_from_wcs( trimim, width=x1-x0, height=y1-y0, setradec=True, mask=trimim.flags )
+                # We want the trimmed image ra/dec to have the ra/dec of the thing we TRIED to center on.
+                tmp = wcs.wcs.pixel_to_world_values( xcen, ycen )
+                # It's very irritating that numpy returns array(5.) instead of 5.
+                # Even worse is that numbers.isnstance( array(5.), Real ) is False.
+                trimim.ra = float( tmp[0] )
+                trimim.dec = float( tmp[1] )
+                trimim.calculate_coordinates()
+                trimim.set_corners_from_wcs( trimwcs.wcs, width=x1-x0, height=y1-y0, setradec=False )
+
+            if ( trimzp is None ) and ( trimwcs is not None ) and ( zp is not None ):
+                to_save['zp'] = None
+                from models.zero_point import ZeroPoint
+                trimzp = ZeroPoint.create( zp=zp.zp, dzp=zp.dzp, aper_cor_radii=zp.aper_cor_radii,
+                                           aper_cors=zp.aper_cors, provenance_id=zp.provenance_id,
+                                           wcs_id=trimwcs.id )
+                trimzp.provenance_id = None if trimzpprov is None else trimzpprov.id
+
+        retval = { 'image': trimim,
+                   'sources': trimsrc,
+                   'bg': trimbg,
+                   'psf': trimpsf,
+                   'wcs': trimwcs,
+                   'zp': trimzp,
+                   'provenances': { 'image': trimimprov,
+                                    'sources': trimsrcprov,
+                                    'wcs': trimwcsprov,
+                                    'zp': trimzpprov },
+                   'limits': ( x0, x1, y0, y1 )
+                  }
+
+        if save_to_db:
+            # OMG RACE CONDITION
+            # It's conceivable that two processes will generate the
+            #   same trimmed image at once.
+            # I'm just going to hope that hardly ever happens.  If
+            #   it does, we'll get an exception below on
+            #   pgdb.commit() because of the unique constraint on
+            #   filepath.  Perhaps we should catch that exception
+            #   and verify that the thing that got saved is the same
+            #   as what we just generated.
+            for which, kwargs in to_save.items():
+                if kwargs is not None:
+                    retval[which].save( **kwargs )
+            with PGDB( pgdb_in ) as pgdb:
+                for which in to_save.keys():
+                    retval[which].insert( pgdb=pgdb, nocommit=True )
+                pgdb.commit()
+
+        return retval
+
+
+    def invent_filepath( self, name_convention=None, extra=None, append=None, **overrides ):
         """Create a relative file path for the object.
 
         Create a file path relative to data root for the object based on its
@@ -1227,50 +1962,105 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
         (e.g., SourceList) will just append another string to the Image
         filename.
 
-        Coadded or difference images (that have a list of upstream_images)
-        will also be appended a "u-tag" which is just the letter u
-        (for "upstreams") follwed by the first 6 characters of the
-        SHA256 hash of the upstream image filepaths.  This is to make
-        sure that the filepath is unique for each combination of
-        upstream images.
+        Coadded or difference images (that have a list of
+        upstream_images) will also be appended a "u-tag" which is just
+        the letter u (for "upstreams") follwed by the first 6 characters
+        of the SHA256 hash of the upstream image filepaths.  This is to
+        make sure that the filepath is unique for each combination of
+        upstream images.  Furthermore, they will have the RA and Dec (to
+        4 decimal places) appended, so that filenames will be unique for
+        coadds that happen to include exactly the same upstream images
+        but that are centered differently.  (TODO: same center,
+        different alignments!  Issue #541.)
+
+        Does NOT set self.filepath, just returns what you might want to
+        set it to.
+
+        Parameters
+        ----------
+           name_convention: str, default None
+              A properly-formatted naming convention.  Uses
+              storage.image.name_convention from the config file if this
+              isn't given.
+
+           extras: str, default None
+              If not None, this will be appended ot the end of the filepath
+              (but before stuff that's added for coadded or difference
+              images, described above).  It can include {field} stuff
+              just like the filepath extension.
+
+           append: str, default None
+              Added to the very end of the filepath (but before .fits).
+              Added as a raw string, so please no spaces, curly braces,
+              etc.
+
+           overrides:
+              Further keywords can be passed to *override* what's in the
+              Image object.  Use this with extreme care.  Arguments can include:
+                provenance_id
+                inst_name
+                im_type
+                project
+                mjd
+                filter_short
+                section_id
+                ra
+                dec
+
+
+        Returns
+        -------
+           str
 
         """
         prov_hash = inst_name = im_type = date = time = filter = ra = dec = dec_int_pm = project = ''
         section_id = section_id_int = ra_int = ra_int_h = ra_frac = dec_int = dec_frac = 0
+        mjd = None
 
-        if self.provenance_id is not None:
+        overrideable = { 'prov_hash', 'inst_name', 'im_type', 'project', 'mjd',
+                         'filter', 'section_id', 'ra', 'dec' }
+        unknown = set( overrides.keys() ) - overrideable
+        if len(unknown) > 0:
+            raise ValueError( f"Unknown overrides: {unknown}" )
+        for prop, val in overrides.items():
+            locals()[prop] = overrides[prop]
+
+        if ( self.provenance_id is not None ) and ( 'prov_hash' not in overrides ):
             prov_hash = self.provenance_id
-        if self.instrument_object is not None:
+
+        if ( self.instrument_object is not None ) and ( 'inst_name' not in overrides ):
             inst_name = self.instrument_object.get_short_instrument_name()
-        if self.type is not None:
+        if ( self.type is not None ) and ( 'im_type' not in overrides ):
             im_type = self.type
-        if self.project is not None:
+        if ( self.project is not None ) and ( 'project' not in overrides ):
             project = self.project
 
-        if self.mjd is not None:
-            t = Time(self.mjd, format='mjd', scale='utc').datetime
+        mjd = self.mjd if 'mjd' not in overrides else mjd
+        if ( mjd is not None ):
+            t = Time(mjd, format='mjd', scale='utc').datetime
             date = t.strftime('%Y%m%d')
             time = t.strftime('%H%M%S')
 
-        if self.filter_short is not None:
+        if ( self.filter_short is not None ) and ( 'filter' not in overrides ):
             filter = self.filter_short
 
-        if self.section_id is not None:
-            section_id = str(self.section_id)
+        tmp_section_id = self.section_id if 'section_id' not in overrides else section_id
+        if tmp_section_id is not None:
+            section_id = str(tmp_section_id)
             try:
-                section_id_int = int(self.section_id)
+                section_id_int = int(tmp_section_id)
             except ValueError:
                 section_id_int = 0  # TODO: maybe replace with a placeholder like 99?
 
-        if self.ra is not None:
-            ra = self.ra
+        ra = self.ra if 'ra' not in overrides else ra
+        if ra is not None:
             ra_int, ra_frac = str(float(ra)).split('.')
             ra_int = int(ra_int)
             ra_int_h = ra_int // 15
             ra_frac = int(ra_frac)
 
-        if self.dec is not None:
-            dec = self.dec
+        dec = self.dec if 'dec' not in overrides else dec
+        if dec is not None:
             dec_int, dec_frac = str(float(dec)).split('.')
             dec_int = int(dec_int)
             dec_int_pm = f'p{dec_int:02d}' if dec_int >= 0 else f'm{-dec_int:02d}'
@@ -1282,6 +2072,9 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
             name_convention = cfg.value('storage.images.name_convention', default=None)
         if name_convention is None:
             name_convention = default_convention
+
+        if extra is not None:
+            name_convention += extra
 
         filepath = name_convention.format(
             inst_name=inst_name,
@@ -1303,12 +2096,29 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
             prov_hash=prov_hash,
         )
 
-        # TODO: which elements of the naming convention are really necessary?
-        #  and what is a good way to make sure the filename actually depends on them?
-
-        # Add some barf at the end if this is a coadded or subtracted image.
-        # Reason: it's possible all the rest of the filename will be identical
-        #  to an existing image.
+        # For coadded and subtracted images, add some more things to the filename.
+        # Reason: you can have more than one coadd or subtraction image in the
+        #   same provenance that has the same image used as the base for its name,
+        #   but they *can* be different images.
+        # Two things can be different:
+        #   (1) the set of images combined may be different
+        #   (2) it's possible that the set of images combined in a coadd
+        #       is the same, but the image is centered differently.
+        #
+        # To keep filenames unique, add two things to the end of the
+        #    filename.  First, add a hash of the images (really,
+        #    zeropoint ids) that went into the coadd or subtraction.
+        #    Second, add a 0.0001-resolution RA and Dec.  (...Yeah,
+        #    somebody might coadd things that are centered differently,
+        #    but by less than 0.0001° in RA or Dec, but that's a really
+        #    perverse edge case.  pipeline/ref_maker.py should usually
+        #    be run with an overlap fraction that allows for
+        #    misalignment of more than an arcsecond when choosing refs!)
+        #
+        # ...it's possible that the ra and dec is already in the filename,
+        #   given the naming convention.  Probably we should refactor this
+        #   to have separate naming conventions for regular, coadded, and
+        #   subtracted images!
         if self.is_coadd or self.is_sub:
             utag = hashlib.sha256()
 
@@ -1322,6 +2132,11 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
             utag = base64.b32encode(utag.digest()).decode().lower()
             utag = '_u-' + utag[:6]
             filepath += utag
+
+            filepath += f"_{ra:08.4f}{dec:+08.4f}"
+
+        if append is not None:
+            filepath += append
 
         return filepath
 
@@ -1566,47 +2381,165 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
                 setattr( self, f'_{prop}', None )
 
 
-    def get_upstream_ids(self, pgdb=None):
+    def get_upstream_ids(self, full_chain=False, _seen=None, pgdb=None):
         """Get the ids immediate upstreams of this image.
 
         This may include an exposure (for most images), zeropoints (if
         this is subtraction or coadd image), and/or a reference (if this
-        is a subtraction).
+        is a subtraction).  If full_chain is True, then this can also
+        include world coordinates, source lists, and images.
+
+        Parameters
+        ----------
+          full_chain: bool, default False
+            Normally this only returns the immediate upstreams.  Set
+            full_chain to True to get everything all the way back to the
+            beginning.  WARNING, these are not sorted in any way.
+
+            WARNING : this is not tested, and (I think) not even used in
+            the code base right now.  TODO: write tests.
+
+          _seen: set
+              Used internally for recursion if full_chain is True.
 
         Returns
         -------
         upstreams: list of [ ( class, id ) ]
-            The upstream Exposure, ZeroPoint, and Reference objects that
-            were used to create this image.  For most images, it will be
-            (at most) a single Exposure.  For coadds, it will be a bunch
-            of ZeroPoints.  For a subtraction, will be one ZeroPoint and
-            one Reference.
+            The upstream Exposure, WorldCoordiantes, ZeroPoint, and
+            Reference ids that were used to create this image.  For most
+            images, it will be (at most) a single Exposure id.  For
+            coadds, it will be a bunch of ZeroPoints.  For a
+            subtraction, will be one ZeroPoint and one Reference.  For
+            warped images, it will be two WorldCoordiantes.  Don't count
+            on the list as being sorted in any particular way.  It's not
+            fully deterministic, nor is it random, but in any event it's
+            not obvious.
+
+            If full_chain is true, this list can also include
+            SourceList, WorldCoordinates, and Image ids.
 
         """
 
         # Avoid circular imports
+        from models.source_list import SourceList
+        from models.world_coordinates import WorldCoordinates
         from models.zero_point import ZeroPoint
         from models.reference import Reference
+
+        seen = set() if _seen is None else _seen
 
         if self.exposure_id is None:
             upstreams = []
         else:
+            seen.add( self.exposure_id )
             upstreams = [ ( Exposure, self.exposure_id ) ]
 
         with PGDB( pgdb ) as pgdb:
             if self.is_sub:
                 if self.is_coadd:
                     raise ValueError( f"Database corruption, image {self.id} is both a sub and a coadd!!!!!" )
+                if self.is_trim:
+                    raise ValueError( f"Database corruption, image {self.id} is both a sub and a trim!!!!!" )
                 q = sql.SQL( "SELECT new_zp_id, ref_id FROM image_subtraction_components WHERE image_id={me}"
                              ).format( me=self.id )
                 rows, _cols = pgdb.execute( q )
-                upstreams.extend( [ ( ZeroPoint, row[0] ) for row in rows ] )
-                upstreams.extend( [ ( Reference, row[1] ) for row in rows ] )
+                for row in rows:
+                    if row[0] not in seen:
+                        upstreams.append( ( ZeroPoint, row[0] ) )
+                        seen.add( row[0] )
+                    if row[1] not in seen:
+                        upstreams.append( ( Reference, row[1] ) )
+                        seen.add( row[1] )
 
             elif self.is_coadd:
+                if self.is_trim:
+                    raise ValueError( f"Database corruption, image {self.id} is both a coadd and a trim!!!!!" )
                 q = sql.SQL( "SELECT zp_id FROM image_coadd_component WHERE coadd_image_id={me}" ).format( me=self.id )
                 rows, _cols = pgdb.execute( q )
-                upstreams.extend( [ ( ZeroPoint, row[0] ) for row in rows ] )
+                for row in rows:
+                    if row[0] not in seen:
+                        upstreams.append( ( ZeroPoint, row[0] ) )
+                        seen.add( row[0] )
+
+            elif ImageTypeConverter().to_string( self._type ) in ( 'Warped', 'ComWarped' ):
+                q = sql.SQL( "SELECT unwarped_zp_id, target_wcs_id FROM image_warp_parent "
+                             "WHERE warped_id={me}" ).format( me=self.id )
+                rows, _cols = pgdb.execute( q )
+                if len(rows) > 1:
+                    raise RuntimeError( f"Database corruption, image {self.id} has multiple warp parents!  "
+                                        f"This should never happen." )
+                elif len(rows) == 1:
+                    if rows[0][0] not in seen:
+                        upstreams.append( ( ZeroPoint, rows[0][0] ) )
+                        seen.add( rows[0][0] )
+                    if rows[0][1] not in seen:
+                        upstreams.append( ( WorldCoordinates, rows[0][1] ) )
+                        seen.add( rows[0][1] )
+
+            elif self.is_trim:
+                q = sql.SQL( "SELECT parent_image_id, parent_wcs_id FROM image trim_parent "
+                             "WHERE image_id={me}" ).formt( me=self.id )
+                rows, _cols = pgdb.execute( q )
+                for row in rows:
+                    if row[0] not in seen:
+                        upstreams.append( ( Image, row[0] ) )
+                        seen.add( row[0] )
+                    if row[1] not in seen:
+                        upstreams.append( ( WorldCoordinates, row[1] ) )
+                        seen.add( row[1] )
+
+            if full_chain:
+                # Get upstreams of WorldCoordinateses.  These will be from trimmed and warped images.
+                wcsupstrs = [ u[1] for u in upstreams if u[0] == WorldCoordinates ]
+                if len( wcsupstrs ) > 0:
+                    q = sql.SQL( textwrap.dedent(
+                        """\
+                        SELECT s._id, i._id
+                        FROM world_coordinates w
+                        INNER JOIN source_lists s ON s._id=w.sources_id
+                        INNER JOIN images i ON i._id=s.image_id
+                        WHERE w._id=ANY(ARRAY[{wcsids}])
+                        """
+                    ) ).format( wcsids=sql.SQL(",").join(wcsupstrs) )
+                    rows, _cols = pgdb.execute( q )
+                    for row in rows:
+                        if row[0] not in seen:
+                            seen.add( row[0] )
+                            upstreams.append( ( SourceList, row[0] ) )
+                        if row[1] not in seen:
+                            seen.add( row[1] )
+                            upstreams.append( ( Image, row[1] ) )
+
+                # Get all upstreams back to Image of ZeroPoints.  This will come from subs and coads.
+                zpupstrs = [ u[1] for u in upstreams if u[0] == ZeroPoint ]
+                if len( zpupstrs ) > 0:
+                    q = sql.SQL( textwrap.dedent(
+                        """\
+                        SELECT w._id, s._id, i._id
+                        FROM zero_points z
+                        INNER JOIN world_coordinates w ON w._id=z.wcs_id
+                        INNER JOIN source_lists s ON s._id=w.sources_id
+                        INNER JOIN images i ON s.image_id=i._id
+                        WHERE z._id=ANY(ARRAY[{zpids}])
+                        """
+                    ) ).format( zpids=sql.SQL(",").join(zpupstrs) )
+                    rows, _cols = pgdb.execute( q )
+                    for row in rows:
+                        if row[0] not in seen:
+                            upstreams.append( ( WorldCoordinates, row[0] ) )
+                            seen.add( row[0] )
+                        if row[1] not in seen:
+                            upstreams.append( ( SourceList, row[1] ) )
+                            seen.add( row[1] )
+                        if row[2] not in seen:
+                            seen.add( row[2] )
+                            upstreams.append( ( Image, row[2] ) )
+
+                # Recursively get all upstreams of Images we've collected
+                for upstream in upstreams:
+                    if upstream[0] == Image:
+                        img = Image.get_by_id( upstream[1], pgdb=pgdb )
+                        upstreams.extend( img.get_upstream_ids( full_chain=True, _seen=seen, pgdb=pgdb ) )
 
         return upstreams
 
@@ -1614,17 +2547,122 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
     def get_downstream_ids(self, pgdb=None):
         """Get ids all the data products that were created based on this image.
 
-        This will just be SourceLists.
+        This will include:
+           * source lists
+           * images (images trimmed from this image)
+           * dia forced photometry
 
         """
 
         # avoids circular import
         from models.source_list import SourceList
+        from models.diaforcedphot import DiaForcedPhot
+
+        downstreams = []
 
         with PGDB( pgdb ) as pgdb:
             q = sql.SQL( "SELECT _id FROM source_lists WHERE image_id={me}" ).format( me=self.id )
             rows, _cols = pgdb.execute( q )
-            return [ ( SourceList, row[0] ) for row in rows ]
+            downstreams.extend( [ ( SourceList, row[0] ) for row in rows ] )
+
+            q = sql.SQL( "SELECT _id FROM dia_forced_photometry WHERE subtraction_id={me}" ).format( me=self.id )
+            rows, _cols = pgdb.execute( q )
+            downstreams.extend( [ ( DiaForcedPhot, row[0] ) for row in rows ] )
+
+            q = sql.SQL( "SELECT image_id FROM image_trim_parent WHERE parent_image_id={me}"
+                        ).format( me=self.id )
+            rows, _cols = pgdb.execute( q )
+            downstreams.extend( [ ( Image, row[0] ) for row in rows ] )
+
+        return downstreams
+
+    def get_new_image( self, pgdb=None, return_sources=False, return_wcs=False, return_zp=False ):
+        if not self.is_sub:
+            raise ValueError( "Can't get new image for image that isn't a subtraction." )
+        with PGDB( pgdb ) as pgdb:
+            q = sql.SQL( textwrap.dedent(
+                """\
+                SELECT i._id, s._id, w._id, z._id FROM image_subtracton_components isc
+                INNER JOIN zero_points z ON isc.new_zp_id=z._id
+                INNER JOIN world_coordinates w ON z.wcs_id=w._id
+                INNER JOIN source_lists s ON w.sources_id=s._id
+                INNER JOIN images i ON s.image_id=w._id
+                WHERE isc.image_id={me}
+                """
+            ) ).format( me=self.id )
+            rows, _cols = pgdb.execute( q )
+            if len(rows) != 1:
+                raise RuntimeError( f"Failed to find new image for subtracton image {self.id}" )
+            rval = { 'image': Image.get_by_id( rows[0][0], pgdb=pgdb ) }
+            if return_sources:
+                # import here to avoid circular imports
+                from models.source_list import SourceList
+                rval['sources'] = SourceList.get_by_id( rows[0][1], pgdb=pgdb )
+            if return_wcs:
+                from models.world_coordinates import WorldCoordinates
+                rval['wcs'] = WorldCoordinates.get_by_id( rows[0][2], pgdb=pgdb )
+            if return_zp:
+                from models.zero_point import ZeroPoint
+                rval['zp'] = ZeroPoint.get_by_id( rows[0][3], pgdb=pgdb )
+
+            return rval
+
+    def get_ref_image( self, warp_prov=None, pgdb=None, return_ref=False, return_sources=False, return_wcs=False,
+                       return_zp=False, return_warped=False ):
+        if not self.is_sub:
+            raise ValueError( "Can't get ref image for image that isn't a subtraction" )
+        with PGDB( pgdb ) as pgdb:
+            q = sql.SQL( textwrap.dedent(
+                """\
+                SELECT i._id, s._id, w._id, z._id, ref._id FROM image_subtraction_components isc
+                INNER JOIN refs ref ON isc.ref_id=ref._id
+                INNER JOIN zero_points z ON ref.zp_id=z._id
+                INNER JOIN world_coordinates w ON z.wcs_id=w._id
+                INNER JOIN source_lists s ON w.sources_id=s._id
+                INNER JOIN images i ON s.image_id=i._id
+                WHERE isc.image_id={me}
+                """
+            ) ).format( me=self.id )
+            rows, _cols = pgdb.execute( q )
+            if len(rows) != 1:
+                raise RuntimeError( f"Failed to find ref image for subtraction image {self.id}" )
+            rval = { 'image': Image.get_by_id( rows[0][0], pgdb=pgdb ) }
+            if return_sources:
+                from models.source_list import SourceList
+                rval['sources'] = SourceList.get_by_id( rows[0][1], pgdb=pgdb )
+            if return_wcs:
+                from models.world_coordinates import WorldCoordinates
+                rval['wcs'] = WorldCoordinates.get_by_id( rows[0][2], pgdb=pgdb)
+            if return_zp:
+                from models.zero_point import ZeroPoint
+                rval['zp'] = ZeroPoint.get_by_id( rows[0][3], pgdb=pgdb )
+            if return_ref:
+                from models.reference import Reference
+                rval['ref'] = Reference.get_by_id( rows[0][4], pgdb=pgdb )
+            if return_warped:
+                q = sql.SQL( textwrap.dedent(
+                    """\
+                    SELECT i.* FROM image_subtraction_components isc
+                    INNER JOIN zero_points z ON isc.new_zp_id=z._id
+                    INNER JOIN image_warp_parent iwp ON iwp.target_wcs_id=z.wcs_id
+                    INNER JOIN images i ON i._id=iwp.warped_id
+                    WHERE iwp.unwarped_zp_id={zpid}
+                      AND isc.image_id={me}
+                    """
+                ) ).format( me=self.id, zpid=rows[0][3] )
+                if warp_prov is not None:
+                    warp_prov = warp_prov.id if isinstance( warp_prov, Provenance ) else warp_prov
+                    q += sql.SQL( "  AND iwp.warp_provenance_id={prov}" ).format( prov=warp_prov )
+                rows, _cols = pgdb.execute( q )
+                if len(rows) == 0:
+                    # Might just not exist; we don't require it to
+                    rval['warped' ] = None
+                elif warp_prov is not None:
+                    rval['warped'] = [ Image.create( **row ) for row in rows ]
+                else:
+                    rval['warped'] = Image.create( **(rows[0]) )
+
+            return rval
 
 
     @staticmethod
@@ -1641,7 +2679,7 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
             provenance_ids_are_zp=False,
             provenance_ids_are_wcs=False,
             use_good=True,
-            type=[1,2,3,4],
+            type=[1,2,3,4,20,21],
             target=None,
             section_id=None,
             project=None,
@@ -1649,8 +2687,6 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
             filter=None,
             min_mjd=None,
             max_mjd=None,
-            min_dateobs=None,
-            max_dateobs=None,
             min_exp_time=None,
             max_exp_time=None,
             min_seeing=None,
@@ -1745,7 +2781,7 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
             List of image types to search for; see
             enums_and_bitflags.py::ImageTypeConverter for the values.
             Use "Sci" or 1 to get regular (non-coadd, non-subtraction)
-            images.  This defaults to [1,2,3,4], which gets science,
+            images.  This defaults to [1,2,3,4,20,21], which gets science,
             coadded science, difference, and coadded difference images;
             it omits calibration images (bias, flats, etc.) and warped
             images.  Set this to None to get everything.
@@ -1770,17 +2806,13 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
             Find images taken using this filter.
             Provide a list to match multiple filters.
 
-        min_mjd: float (optional)
-            Find images taken after this MJD.
+        min_mjd: float, str, astropy.time.Time, datetime.datetime, or datetime.date (optional)
+            Find images taken after this time.  If a float, it is an
+            MJD.  If a str, it must be ISO8601 formatted and should
+            either have an explicit time zone (ideal) or be UTC.
 
-        max_mjd: float (optional)
-            Find images taken before this MJD.
-
-        min_dateobs: str (optional)
-            Find images taken after this date (use ISOT format or a datetime object).
-
-        max_dateobs: str (optional)
-            Find images taken before this date (use ISOT format or a datetime object).
+        max_mjd: float, str, astropy.time.Time, datetime.datetime, or datetime.date (optional)
+            Find images taken after this time.
 
         min_exp_time: float (optional)
             Find images with exposure time longer than this (in seconds).
@@ -2066,8 +3098,8 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
                     ) ).format( ra=ra, dec=dec )
 
             # A few fields need preprocessing before feeding into the code below
-            min_dateobs = None if min_dateobs is None else parse_dateobs(min_dateobs, output='mjd')
-            max_dateobs = None if max_dateobs is None else parse_dateobs(max_dateobs, output='mjd')
+            min_mjd = None if min_mjd is None else parse_dateobs(min_mjd, output='mjd')
+            max_mjd = None if max_mjd is None else parse_dateobs(max_mjd, output='mjd')
             types = None if type is None else [ ImageTypeConverter.to_int(t) for t in listify(type) ]
 
             # Note that we do NOT filter on provenance here, because we already filtered on
@@ -2079,9 +3111,7 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
                        { 'field': 'instrument',          'val': instrument,     'type': 'list' },
                        { 'field': '_type',               'val': types,          'type': 'list' },
                        { 'field': 'mjd',                 'val': min_mjd,        'type': 'ge' },
-                       { 'field': 'mjd',                 'val': min_dateobs,    'type': 'ge' },
                        { 'field': 'mjd',                 'val': max_mjd,        'type': 'le' },
-                       { 'field': 'mjd',                 'val': max_dateobs,    'type': 'le' },
                        { 'field': 'exp_time',            'val': min_exp_time,   'type': 'ge' },
                        { 'field': 'exp_time',            'val': max_exp_time,   'type': 'le' },
                        { 'field': 'fwhm_estimate',       'val': min_seeing,     'type': 'ge' },
@@ -2238,7 +3268,7 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
 
 
     @staticmethod
-    def get_coadd_from_components(zps, prov_id=None, session=None):
+    def get_coadd_from_components(zps, prov_id=None, pgdb=None, session=None):
         """Finds the combined image with a given provenance that was made from exactly a list of images.
 
         (The zeropoints point back to wcs which point to sources which point to images.)
@@ -2258,43 +3288,45 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
 
         if ( prov_id is not None ) and ( isinstance( prov_id, Provenance ) ):
             prov_id = prov_id.id
-        zpids = [ i.id if isinstance(i,ZeroPoint) else str(i) for i in zps ]
+        zpids = [ i.id if isinstance(i, ZeroPoint) else asUUID(i) for i in zps ]
 
-        with SmartSession(session) as session:
-            dbcon = session.bind.raw_connection()
-            cursor = dbcon.cursor()
-
-            cursor.execute( "DROP TABLE IF EXISTS temp_image_from_upstreams" )
+        with PGDB( pgdb if pgdb is not None else session, dictcursor=True ) as pgdb:
+            pgdb.execute( "DROP TABLE IF EXISTS temp_image_from_upstreams" )
 
             # First get a list of candidate coadd images that are ones whose upstreams
             #   include anything in images, plus a count of how many of
             #   images are in the upstreams.
-            q = ( "SELECT i._id AS imgid, COUNT(c.zp_id) AS nmatchupstr "
-                  "INTO TEMP TABLE temp_image_from_upstreams "
-                  "FROM images i "
-                  "INNER JOIN image_coadd_component c ON c.coadd_image_id=i._id "
-                  "WHERE c.zp_id=ANY(%(zpids)s) " )
-            subdict = { 'zpids': zpids }
+            q = sql.SQL( textwrap.dedent(
+                """\
+                SELECT i._id AS imgid, COUNT(c.zp_id) AS nmatchupstr
+                INTO TEMP TABLE temp_image_from_upstreams
+                FROM images i
+                INNER JOIN image_coadd_component c ON c.coadd_image_id=i._id
+                WHERE c.zp_id=ANY(ARRAY[{zipds}])
+                """
+            ) ).format( zipds=sql.SQL(",").join( zpids ) )
 
             if prov_id is not None:  # pick only those coadds with the right provenance id
-                q += "AND i.provenance_id=%(provid)s "
-                subdict[ 'provid' ] = prov_id
+                q += sql.SQL( "  AND i.provenance_id={provid}\n" ).format( provid=prov_id )
 
-            q += "GROUP BY i._id "
-            cursor.execute( q, subdict )
+            q += sql.SQL( "GROUP BY i._id " )
+            pgdb.execute( q )
 
             # Now go through those images and count *all* of the upstreams.
             # (The previous table only counted upstreams that were in zps.)
             # The one (if any) that has len(images) in both the count of
             # matched upstreams and all upstreams is the one we're looking for.
-            q = ( "SELECT imgid FROM ("
-                  "  SELECT t.imgid, t.nmatchupstr, COUNT(c.zp_id) AS nupstr "
-                  "  FROM temp_image_from_upstreams t "
-                  "  INNER JOIN image_coadd_component c ON c.coadd_image_id=t.imgid "
-                  "  GROUP BY t.imgid, t.nmatchupstr ) subq "
-                  "WHERE nmatchupstr=%(num)s AND nupstr=%(num)s " )
-            cursor.execute( q, { 'num': len(zpids) } )
-            rows = cursor.fetchall()
+            q = sql.SQL( textwrap.dedent(
+                """\
+                SELECT imgid FROM (
+                  SELECT t.imgid, t.nmatchupstr, COUNT(c.zp_id) AS nupstr
+                  FROM temp_image_from_upstreams t
+                  INNER JOIN image_coadd_component c ON c.coadd_image_id=t.imgid
+                  GROUP BY t.imgid, t.nmatchupstr ) subq
+                WHERE nmatchupstr={num} AND nupstr={num}
+                """
+            ) ).format( num=len(zpids) )
+            rows = pgdb.execute( q )
 
             if len(rows) > 1:
                 raise ValueError( f"More than one combined image found with provenance ID {prov_id} "
@@ -2302,7 +3334,7 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
             elif len(rows) == 0:
                 return None
             else:
-                return Image.get_by_id( rows[0][0], session=session )
+                return Image.get_by_id( rows[0]['imgid'], session=session )
 
 
     @property
@@ -2435,25 +3467,6 @@ class Image(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, FourCorners, Has
     @nanscore.setter
     def nanscore(self, value):
         self._nanscore = value
-
-    def show(self, **kwargs):
-        """Display the image using the matplotlib imshow function.
-
-        Parameters
-        ----------
-        **kwargs: passed on to matplotlib.pyplot.imshow()
-            Additional keyword arguments to pass to imshow.
-        """
-        import matplotlib.pyplot as plt
-        mu, sigma = sigma_clipping(self.data)
-        defaults = {
-            'cmap': 'gray',
-            # 'origin': 'lower',
-            'vmin': mu - 3 * sigma,
-            'vmax': mu + 5 * sigma,
-        }
-        defaults.update(kwargs)
-        plt.imshow(self.nandata, **defaults)
 
 
 if __name__ == '__main__':

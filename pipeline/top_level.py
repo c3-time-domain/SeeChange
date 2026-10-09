@@ -535,7 +535,7 @@ class Pipeline:
         t_start = time.perf_counter()
         try:
             SCLogger.info(f"Saving at step {step} for image id {ds.image.id}")
-            ds.save_and_commit()
+            ds.save_and_commit( save_warped_ref=self.subtractor.pars.save_warped_ref )
         except Exception as e:
             SCLogger.exception(f"Failed to save at step {step} for image id {ds.image.id}")
             raise e

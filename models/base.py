@@ -739,7 +739,30 @@ class SeeChangeBase:
 
     type_annotation_map = { UUID: sqlUUID }
 
+    @classmethod
+    def create( cls, create_uuidify=True, **kwargs ):
+        """Create an object.  Usually use this instead of the object constructor directly.
+
+        For most objects, it just calls the object constructor.  Some classes may subclass this
+        so that they can create objects of different classes based on what's passed.
+
+        """
+        if create_uuidify:
+            mess = sa.inspect( cls )
+            knowncols = { c.name: c for c in mess.columns }
+            for k in kwargs:
+                if ( k in knowncols ) and ( isinstance( knowncols[k].type, sqlUUID ) ):
+                    kwargs[k] = None if kwargs[k] is None else asUUID( kwargs[k] )
+        return cls( **kwargs )
+
     def __init__(self, **kwargs):
+        # THIS NEXT ONE IS ILL-CONSIDERED.
+        # For it to really be right, we need to go everywhere through the code
+        #    and make sure we're setting it.  Perhaps this worked if you only
+        #    ever used SQLAlchemy to pull things from the database (in which case
+        #    __init__ isn't called), but that would be such a nightmare world to
+        #    live in that I don't even want to think about it.
+        # Should be removed as part if Issue #516.
         self.from_db = False  # let users know this object was newly created
 
         if hasattr(self, '_bitflag'):
@@ -882,7 +905,7 @@ class SeeChangeBase:
         return cols, values
 
 
-    def insert( self, session=None, nocommit=False ):
+    def insert( self, pgdb=None, session=None, nocommit=False, load_defaults=False ):
         """Insert the object into the database.
 
         Does not do any saving to disk, only saves the database record.
@@ -898,56 +921,61 @@ class SeeChangeBase:
 
         Parameters
         ----------
-          session: PGDB, psycopg.Connection, psycogp.Cursor, or sqlalchemy Session, or None
+          pgdb, session: PGDB, psycopg.Connection, psycogp.Cursor, or sqlalchemy Session, or None
             Usually you do not want to pass this; it's mostly for other
-            upsert etc. methods that cascade to this.
+            upsert etc. methods that cascade to this.  The two things
+            are synoyms; if both are given, pgdb takes precedence.
 
           nocommit: bool, default False
             If True, run the statement to insert the object, but don't
             actually commit the database.  Do this if you want the
-            insert to be inside a transaction you've started on session.
+            insert to be inside a transaction you've started on pgdb.
             It doesn't make sense to set nocommit=True unless you've
-            passed something in session.
+            passed something in pgdb.
+
+          load_defaults: bool, default False
+            Normally, will *not* update self's fields with server
+            default values.  Set this to True for that to happen.  (This
+            will trigger an additional read from the database.)
 
         """
 
+        pgdb = pgdb if pgdb is not None else session
+
         _ = self.id    # Make sure id is generated
 
-        # Doing this manually for a few reasons.  First, doing a
-        #  Session.add wasn't always just doing an insert, but was doing
-        #  other things like going to the database and checking if it
-        #  was there and merging, whereas here we want an exception to
-        #  be raised if the row already exists in the database.  Second,
-        #  to work around that, we did orm.make_transient( self ), but
-        #  that wiped out the _id field, and I'm nervous about what
-        #  other unintended consequences calling that SQLA function
-        #  might have.  Third, now that we've moved defaults to be
-        #  database-side defaults, we'll get errors from SQLA if those
-        #  fields aren't filled by trying to do an add, whereas we
-        #  should be find with that as the database will just load
-        #  the defaults.
-        #
-        # In any event, doing this manually dodges any weirdness associated
-        #  with objects attached, or not attached, to sessions.
-        #
-        # (Even better, unless a sa Session is passed, bypass sqlalchemy
-        # altogether by just usgin PGDB.)
+        # Do this manually.  SQLAlchemy's Session.add was doing all
+        # kinds of stuff behind the scenes that made it impossible to
+        # really know what was happening to the database, was raising
+        # errors, and was generally doing all the things that make me
+        # wish that I had never even heard of SQLAlchemy in the first
+        # place.  We *want* an exception if we try to insert something
+        # that just already exists.
 
         cols, values = self._get_cols_and_vals_for_insert()
         subdict = { c: v for c,v in zip( cols, values ) if c != 'modified' }
 
-        with PGDB( session ) as pgdb:
+        with PGDB( pgdb ) as pgdb:
             q = sql.SQL( "INSERT INTO {tab}({fields}) VALUES ({vals})"
                         ).format( tab=sql.Identifier(self.__tablename__),
                                   fields=sql.SQL(",").join( sql.Identifier(c) for c in subdict.keys() ),
                                   vals=sql.SQL(",").join( sql.SQL(f'%({c})s') for c in subdict.keys() )
                                  )
             pgdb.execute_nofetch( q, subdict )
+
+            if load_defaults:
+                dbobj = self.__class__.get_by_id( self.id, pgdb=pgdb )
+                for col in sa.inspect( self.__class__ ).c:
+                    if ( ( col.name == 'modified' ) or
+                         ( ( col.server_default is not None ) and ( getattr( self, col.name ) is None ) )
+                        ):
+                        setattr( self, col.name, getattr( dbobj, col.name ) )
+
             if not nocommit:
                 pgdb.commit()
 
 
-    def upsert( self, session=None, load_defaults=False ):
+    def upsert( self, pgdb=None, session=None, load_defaults=False, nocommit=False ):
         """Insert an object into the database, or update it if it's already there (using _id as the primary key).
 
         Will *not* update self's fields with server default values!
@@ -967,8 +995,9 @@ class SeeChangeBase:
 
         Parameters
         ----------
-          session: PGDB, psycopg.Connect, psycopg.Cursor, sa.orm.session.Session, or None
-            Usually you don't want to pass this.
+          pgdb, session: PGDB, psycopg.Connect, psycopg.Cursor, sa.orm.session.Session, or None
+            Usually you don't want to pass this.  The two arguments are
+            synonyms; if both are given, will use pgdb.
 
           load_defaults: bool, default False
             Normally, will *not* update self's fields with server
@@ -1018,9 +1047,10 @@ class SeeChangeBase:
                     conflict=sql.SQL(",").join( sql.SQL(f"{{c}}=%({c})s").format( c=sql.Identifier(c) )
                                                 for c in conflictdict )
                    )
-        with PGDB( session ) as pgdb:
+        with PGDB( pgdb if pgdb is not None else session ) as pgdb:
             pgdb.execute_nofetch( q, subdict )
-            pgdb.commit()
+            if not nocommit:
+                pgdb.commit()
 
             if load_defaults:
                 dbobj = self.__class__.get_by_id( self.id, pgdb=pgdb )
@@ -1032,7 +1062,81 @@ class SeeChangeBase:
 
 
     @classmethod
-    def upsert_list( cls, objects, session=None, load_defaults=False ):
+    def insert_list( cls, objects, pgdb=None, session=None, load_defaults=False, upsert=False, nocommit=False ):
+        """Like upsert, but for a bunch of objects in a list, and tries to be sorta efficient about it.
+
+        Do *not* use this with classes that have things like association
+        tables that need to get updated (i.e. with Image, maybe
+        eventually some others).
+
+        All reference fields (ids of other objects) of the objects must
+        be up to date.  If the referenced objects don't exist in the
+        database already, you'll get integrity errors.
+
+        Will update object id fields, but will not update any other
+        object fields with database defaults.  Reload the rows from the
+        table if that's what you need.
+
+        "sorta efficient": it does it all in one transaction, but it
+        issues a separate "INSERT" for each object in the list.  Use
+        this for small numbers of things to insert (no more than of
+        order 10¹, say).  For larger numbers, you really want to be
+        using a PostgreSQL COPY.
+
+        """
+
+        if not all( [ isinstance( o, cls ) for o in objects ] ):
+            raise TypeError( f"{cls.__name__}.upsert_list: passed objects weren't all of this class!" )
+
+        if nocommit and ( pgdb is None ) and ( session is None ):
+            raise ValueError( "If you set nocommit=True, you must pass a pgdb" )
+
+        with PGDB( pgdb if pgdb is not None else session ) as pgdb:
+            for obj in objects:
+                _ = obj.id                 #  Make sure _id is generated
+                cols, values = obj._get_cols_and_vals_for_insert()
+                subdict = { c: v for c, v in zip( cols, values ) }
+                subdict['modified'] = datetime.datetime.now( tz=datetime.UTC )
+                basicdict = subdict.copy()
+                del basicdict['modified']
+                if upsert:
+                    conflictclause = ( sql.SQL( "ON CONFLICT(_id) DO UPDATE SET {conflict}" )
+                                       .format(
+                                           conflict=sql.SQL(",").join(
+                                               sql.SQL(f"{{c}}=%({c})s").format( c=sql.Identifier(c) )
+                                               for c in subdict.keys() if c != '_id' )
+                                       )
+                                      )
+                else:
+                    conflictclause = sql.SQL( "" )
+
+
+                q = sql.SQL( textwrap.dedent(
+                    """\
+                    INSERT INTO {tab}({fields})
+                    VALUES ({vals})
+                    {conflictclause}
+                    """
+                ) ).format( tab=sql.Identifier(cls.__tablename__),
+                            fields=sql.SQL(",").join( sql.Identifier(c) for c in basicdict.keys() ),
+                            vals=sql.SQL(",").join( sql.SQL(f'%({c})s') for c in basicdict.keys() ),
+                            conflictclause=conflictclause )
+                pgdb.execute_nofetch( q, subdict )
+            if not nocommit:
+                pgdb.commit()
+
+            if load_defaults:
+                for obj in objects:
+                    dbobj = obj.__class__.get_by_id( obj.id, pgdb=pgdb )
+                    for col in sa.inspect( obj.__class__).c:
+                        if ( ( col.name == 'modified' ) or
+                             ( ( col.server_default is not None ) and ( getattr( obj, col.name ) is None ) )
+                            ):
+                            setattr( obj, col.name, getattr( dbobj, col.name ) )
+
+
+    @classmethod
+    def upsert_list( cls, objects, pgdb=None, session=None, load_defaults=False ):
         """Like upsert, but for a bunch of objects in a list, and tries to be efficient about it.
 
         Do *not* use this with classes that have things like association
@@ -1049,46 +1153,7 @@ class SeeChangeBase:
 
         """
 
-        # Doing this manually for the same reasons as in upset()
-
-        if not all( [ isinstance( o, cls ) for o in objects ] ):
-            raise TypeError( f"{cls.__name__}.upsert_list: passed objects weren't all of this class!" )
-
-        with PGDB( session ) as pgdb:
-            for obj in objects:
-                _ = obj.id                 #  Make sure _id is generated
-                cols, values = obj._get_cols_and_vals_for_insert()
-                subdict = { c: v for c, v in zip( cols, values ) }
-                subdict['modified'] = datetime.datetime.now( tz=datetime.UTC )
-                basicdict = subdict.copy()
-                del basicdict['modified']
-                conflictdict = subdict.copy()
-                if '_id' in conflictdict:
-                    del conflictdict['_id']
-
-                q = sql.SQL( textwrap.dedent(
-                    """\
-                    INSERT INTO {tab}({fields})
-                    VALUES ({vals})
-                    ON CONFLICT(_id) DO UPDATE SET {conflict}
-                    """
-                ) ).format( tab=sql.Identifier(cls.__tablename__),
-                            fields=sql.SQL(",").join( sql.Identifier(c) for c in basicdict.keys() ),
-                            vals=sql.SQL(",").join( sql.SQL(f'%({c})s') for c in basicdict.keys() ),
-                            conflict=sql.SQL(",").join( sql.SQL(f"{{c}}=%({c})s").format( c=sql.Identifier(c) )
-                                                        for c in conflictdict.keys() )
-                           )
-                pgdb.execute_nofetch( q, subdict )
-            pgdb.commit()
-
-            if load_defaults:
-                for obj in objects:
-                    dbobj = obj.__class__.get_by_id( obj.id, pgdb=pgdb )
-                    for col in sa.inspect( obj.__class__).c:
-                        if ( ( col.name == 'modified' ) or
-                             ( ( col.server_default is not None ) and ( getattr( obj, col.name ) is None ) )
-                            ):
-                            setattr( obj, col.name, getattr( dbobj, col.name ) )
+        cls.insert_list( objects, pgdb=pgdb, session=session, load_defaults=load_defaults, upsert=True )
 
 
     def _delete_from_database( self, pgdb=None ):
@@ -1121,28 +1186,28 @@ class SeeChangeBase:
         """Get a list of tuples of (type, id) for all direct upstreams of this object (non-recursive)."""
         raise NotImplementedError( f'get_upstream_ids not implemented for this {self.__class__.__name__}' )
 
-    def get_upstreams(self, session=None):
+    def get_upstreams(self, nofile=False, pgdb=None, session=None):
         """Get all data products that were directly used to create this object (non-recursive)."""
         upstreams = []
-        with PGDB( session, dictcursor=True ) as pgdb:
-            upstream_info = self.get_upstream_ids( pgdb)
+        with PGDB( pgdb if pgdb is not None else session, dictcursor=True ) as pgdb:
+            upstream_info = self.get_upstream_ids( pgdb=pgdb )
             for cls, upid in upstream_info:
                 q = sql.SQL( "SELECT * FROM {tab} WHERE _id={objid}" ).format( tab=sql.Identifier(cls.__tablename__),
                                                                                objid=upid )
                 rows = pgdb.execute( q )
                 if len(rows) != 1:
                     raise RuntimeError( "This should never happen." )
-                upstreams.append( cls( **(rows[0]) ) )
+                upstreams.append( cls.create( pgdb=pgdb, nofile=nofile, **(rows[0]) ) )
         return upstreams
 
     def get_downstream_ids(self, pgdb=None):
         """Get a list of tuples of (type, id) for all direct downstreams of this object (non-recursive)."""
         raise NotImplementedError( f'get_downstream_ids not implemented for this {self.__class__.__name__}' )
 
-    def get_downstreams(self, session=None):
+    def get_downstreams(self, pgdb=None, session=None):
         """Get all data products that were created directly from this object (non-recursive)."""
         downstreams = []
-        with PGDB( session, dictcursor=True ) as pgdb:
+        with PGDB( pgdb if pgdb is not None else session, dictcursor=True ) as pgdb:
             downstream_info = self.get_downstream_ids( pgdb )
             for cls, dwnid in downstream_info:
                 q = sql.SQL( "SELECT * FROM {tab} WHERE _id={objid}" ).format( tab=sql.Identifier(cls.__tablename__),
@@ -1150,7 +1215,7 @@ class SeeChangeBase:
                 rows = pgdb.execute( q )
                 if len(rows) != 1:
                     raise RuntimeError( "This should never happen." )
-                downstreams.append( cls( **(rows[0]) ) )
+                downstreams.append( cls.create( pgdb=pgdb, **(rows[0]) ) )
         return downstreams
 
     def delete_everything_in_provtag( self, tag, models=[], remove_folders=True,
@@ -1385,7 +1450,7 @@ class SeeChangeBase:
         if created_at is not None:
             dictionary['created_at'] = datetime.datetime.fromisoformat(created_at)
 
-        return cls(**dictionary)
+        return cls.create(**dictionary)
 
     def to_json(self, filename):
         """Translate a row object's column values to a JSON file.
@@ -1945,7 +2010,7 @@ class FileOnDiskMixin:
         return fullname
 
 
-    def save(self, data, component=None, overwrite=True, exists_ok=True, verify_md5=True, no_archive=False ):
+    def save(self, data, component=None, overwrite=True, exists_ok=True, verify_md5=True, no_archive=False):
         """Save a file to disk, and to the archive.
 
         Does not write anything to the database.  (At least, it's not supposed to....)
@@ -2352,7 +2417,7 @@ class UUIDMixin:
             else:
                 kwargs = kwargs.copy()
                 kwargs.update( rows[0] )
-                obj = cls( **kwargs )
+                obj = cls.create( pgdb=pgdb, **kwargs )
                 obj.from_db = True
                 return obj
 
@@ -2387,10 +2452,10 @@ class UUIDMixin:
                                   ids=sql.SQL(",").join(uuids) )
             rows = pgdb.execute( q )
 
-        if return_dict:
-            return { r['_id']: cls(**r) for r in rows }
-        else:
-            return [ cls(**r) for r in rows ]
+            if return_dict:
+                return { r['_id']: cls.create(pgdb=pgdb, **r) for r in rows }
+            else:
+                return [ cls.create(pgdb=pgdb, **r) for r in rows ]
 
 
     @classmethod
@@ -2416,7 +2481,7 @@ class UUIDMixin:
                                  .format( tab=sql.Identifier(cls.__tablename__),
                                           field=sql.Identifier(field),
                                           vals=sql.SQL(",").join(values) ) )
-        return [ cls(**r) for r in rows ]
+        return [ cls.create(pgdb=pgdb, **r) for r in rows ]
 
 
 
@@ -2485,7 +2550,7 @@ class SpatiallyIndexed:
             q = q.format( tab=sql.Identifier(cls.__tablename__), ra=ra, dec=dec, rad=radius/3600. )
             rows = pgdb.execute( q )
 
-        return [ cls(**row) for row in rows ]
+        return [ cls.create(pgdb=pgdb, **row) for row in rows ]
 
 
     @hybrid_method
@@ -2887,7 +2952,7 @@ class FourCorners:
                         ra=ra, dec=dec )
 
             rows = pgdb.execute( q )
-            objs = [ cls(**r) for r in rows ]
+            objs = [ cls.create(pgdb=pgdb, **r) for r in rows ]
             pgdb.execute_nofetch( sql.SQL( "DROP TABLE {temptable}" ).format( temptable=sql.Identifier(temptable) ) )
             return objs
 
@@ -3036,7 +3101,7 @@ class FourCorners:
             rows = pgdb.execute( sql.SQL( "SELECT i.* FROM {tab} i INNER JOIN {temptable} t ON i._id=t._id" )
                                  .format( tab=sql.Identifier(cls.__tablename__),
                                           temptable=sql.Identifier(temptable) ) )
-            objs = [ cls(**r) for r in rows ]
+            objs = [ cls.create(pgdb=pgdb, **r) for r in rows ]
             pgdb.execute_nofetch( sql.SQL( "DROP TABLE {temptable}" ).format( temptable=sql.Identifier(temptable) ) )
             return objs
 

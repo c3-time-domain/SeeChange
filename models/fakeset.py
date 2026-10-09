@@ -21,7 +21,7 @@ from models.base import (
     SeeChangeBase,
     UUIDMixin,
     FileOnDiskMixin,
-    SmartSession
+    PGDB
 )
 
 
@@ -150,31 +150,31 @@ class FakeSet(Base, UUIDMixin, FileOnDiskMixin):
             raise ValueError( "FakeSet's image property has wrong id!" )
 
 
-    def _load_upstreams( self, session=None ):
+    def _load_upstreams( self, pgdb=None, session=None ):
         if any( [ i is None for i in [ self._zp, self._wcs, self._sources, self._psf, self._image ] ] ):
-            with SmartSession( session ) as sess:
+            with PGDB( pgdb if pgdb is not None else session ) as pgdb:
                 if self._zp is None:
-                    self._zp = ZeroPoint.get_by_id( self.zp_id, session=sess )
+                    self._zp = ZeroPoint.get_by_id( self.zp_id, pgdb=pgdb )
                 elif self._zp.id != self.zp_id:
                     raise ValueError( "FakeSet's zp property has wrong id!" )
 
                 if self._wcs is None:
-                    self._wcs = WorldCoordinates.get_by_id( self._zp.wcs_id, session=sess )
+                    self._wcs = WorldCoordinates.get_by_id( self._zp.wcs_id, pgdb=pgdb )
                 elif self._wcs.id != self._zp.wcs_id:
                     raise ValueError( "FakeSet's wcs property has wrong id!" )
 
                 if self._sources is None:
-                    self._sources = SourceList.get_by_id( self._wcs.sources_id, session=sess )
+                    self._sources = SourceList.get_by_id( self._wcs.sources_id, pgdb=pgdb )
                 elif self._sources.id != self._wcs.sources_id:
                     raise ValueError( "FakeSet's sources property has wrong id!" )
 
                 if self._psf is None:
-                    self._psf = sess.query( PSF ).filter( PSF.sources_id==self._sources.id ).first()
+                    self._psf = PSF.get_by_field_value( 'sources_id', self._sources.id, pgdb=pgdb )[0]
                 elif self._psf.sources_id != self._sources.id:
                     raise ValueError( "FakeSet's psf property has wrong id!" )
 
                 if self._image is None:
-                    self._image = Image.get_by_id( self._sources.image_id, session=sess )
+                    self._image = Image.get_by_id( self._sources.image_id, pgdb=pgdb )
                 elif self._image.id != self._sources.image_id:
                     raise ValueError( "FakeSet's image property has wrong id!" )
 

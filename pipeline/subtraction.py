@@ -6,7 +6,7 @@ import subprocess
 
 import numpy as np
 import pandas
-import sqlalchemy as sa
+from psycopg import sql
 
 from astropy.io import fits
 import astropy.coordinates
@@ -15,7 +15,7 @@ import astropy.units as units
 from pipeline.parameters import Parameters
 from pipeline.data_store import DataStore
 
-from models.base import SmartSession, FileOnDiskMixin
+from models.base import FileOnDiskMixin, PGDB
 from models.image import Image
 from models.source_list import SourceList
 from models.psf import PSF
@@ -67,13 +67,16 @@ class ParsSubtractor(Parameters):
 
         self.reference = self.add_par(
             'reference',
-            {'minovfrac': 0.85,
-             'must_match_instrument': True,
-             'must_match_filter': True,
-             'must_match_section': False,
-             'must_match_target': False },
+            { 'search_by': 'image',
+              'match_instrument': True,
+              'match_filter': True,
+              'min_overlap': 0.85,
+              'max_dist': None,
+              'skip_bad': True,
+              'multiple_ok': True,
+              'choice_criteria': [ 'overlap' ] },
             dict,
-            'Parameters passed to DataStore.get_reference for identifying references'
+            'Parameters (sorta) passed to DataStore.get_reference for identifying references'
         )
 
         self.inpainting = self.add_par(
@@ -90,6 +93,40 @@ class ParsSubtractor(Parameters):
             bool,
             "If a passed datastore has aligned_* properties with the right types of objects, "
             "trust that they're the right thing and don't recalculate alignments.",
+            critical=False
+        )
+
+        self.hotpants_ko = self.add_par(
+            name = 'hotpants_ko',
+            default = 1,
+            par_types = int,
+            docstring = "Spatial order of kernel variation within region (hotpants only)",
+            critical = True
+        )
+
+        self.hotpants_bgo = self.add_par(
+            name = "hotpants_bgo",
+            default = 1,
+            par_types = int,
+            docstring = "Spatial order of background variation within region (hotpants only)",
+            critical = True
+        )
+
+        self.hotpants_numregions = self.add_par(
+            name = "hotpants_numregions",
+            default = [1, 1],
+            par_types = list,
+            docstring = "List of nrx, nry, number of regions (hotpants only)",
+            critical = True
+        )
+
+        self.save_warped_ref = self.add_par(
+            name = 'save_warped_ref',
+            default = True,
+            par_types = bool,
+            docstring = ( "If True, save the warped reference image to the database.  This isn't required, "
+                          "but might be good for diagnostic purposes.  Maybe we will make it required.  "
+                          "Dunno." ),
             critical=False
         )
 
@@ -514,10 +551,10 @@ class Subtractor:
                     '-rss', str(rss),
                     '-ssf', substamp_file,
                     '-v', "0",
-                    '-nrx', "1",
-                    '-nry', "1",
-                    '-ko', "1",    # Maybe make this configurable?  Order of kernel spatial variation
-                    '-bgo', "1"    # Order of background variation.  Since we are not doing bgsubbed news, this matters
+                    '-nrx', str( self.pars.hotpants_numregions[0]),
+                    '-nry', str( self.pars.hotpants_numregions[1]),
+                    '-ko', str( self.pars.hotpants_ko ),
+                    '-bgo', str( self.pars.hotpants_bgo )
                     ]
             com.extend( gaussparam )
             SCLogger.debug( f"Running hotpants with command: {com}" )
@@ -561,12 +598,14 @@ class Subtractor:
                 shutil.rmtree( tmpdir )
 
 
-    def run(self, *args, do_not_load=True, **kwargs):
+    def run(self, *args, ra=None, dec=None, do_not_load=True, trust_datastore_reference=False, **kwargs):
         """Get a reference image and subtract it from the new image.
 
-        Arguments are parsed by the DataStore.parse_args() method.
+        Most arguments are parsed by the DataStore.parse_args() method.
+        "ra" and "dec" are used by the forced photometry pipeline.
 
         Returns a DataStore object with the products of the processing.
+
         """
         self.has_recalculated = False
 
@@ -580,33 +619,56 @@ class Subtractor:
             self.pars.do_warning_exception_hangup_injection_here()
 
             # get the provenance for this step:
-            with SmartSession() as session:
-                # look for a reference that has to do with the current image and refset
-                if self.pars.refset is None:
-                    raise ValueError('No reference set given for subtraction')
-                refset = session.scalars(sa.select(RefSet).where(RefSet.name == self.pars.refset)).first()
-                if refset is None:
-                    raise ValueError(f'Cannot find a reference set with name {self.pars.refset}')
+            with PGDB( dictcursor=True ) as pgdb:
 
-                if self.pars.reference['must_match_section'] or self.pars.reference['must_match_target']:
-                    # TODO : just remove these options.  Issue #424
-                    SCLogger.warning( "must_match_section and must_match target are not implemented!" )
-                ref = ds.get_reference( provenances=refset.provenance,
-                                        min_overlap=self.pars.reference['minovfrac'],
-                                        match_instrument=self.pars.reference['must_match_instrument'],
-                                        session=session )
-                if ref is None:
-                    raise ValueError(
-                        f'Cannot find a reference image corresponding to the datastore inputs: {ds.inputs_str}; '
-                        f'referencing prov = {ds.prov_tree["referencing"]}'
-                    )
+                if trust_datastore_reference:
+                    ref = ds.reference
+                    if ref is None:
+                        raise ValueError( "trust_datastore_reference given, but datastore has no reference." )
+                    elif ref.provenance_id != ds.prov_tree["referencing"].id:
+                        raise ValueError( f"trust_datastore_reference should have been trust_but_verify_....  "
+                                          f"The datastore's provenance tree referencing id "
+                                          f"{ds.prov_tree['referencing']} does not match the datastore'ss "
+                                          f"reference provenance id {ref.provenance_id}" )
+                else:
+                    # look for a reference that has to do with the current image and refset
+                    if self.pars.refset is None:
+                        raise ValueError('No reference set given for subtraction')
+                    q = sql.SQL( "SELECT * FROM refsets WHERE name={name}" ).format( name=self.pars.refset )
+                    rows = pgdb.execute( q )
+                    if len(rows) == 0:
+                        raise ValueError(f'Cannot find a reference set with name {self.pars.refset}')
+                    elif len(rows) > 1:
+                        raise RuntimeError( f'Database corruption, >1 refset with name {self.pars.refset}' )
+
+                    refset = RefSet( **(rows[0]) )
+
+                    kwargs = self.pars.reference.copy()
+                    kwargs['provenances'] = [ refset.provenance_id ]
+                    if ( ( 'must_match_section' in kwargs and kwargs['must_match_section'] ) or
+                         ( 'must_match_target' in kwargs and kwargs['must_match_target'] )
+                        ):
+                        # TODO : just remove these options.  Issue #424
+                        SCLogger.warning( "must_match_section and must_match target are not implemented!" )
+                    if 'must_match_section' in kwargs:
+                        del kwargs['must_match_section']
+                    if 'must_match_target' in kwargs:
+                        del kwargs['must_match_target' ]
+                    ref = ds.get_reference( ra=ra, dec=dec, pgdb=pgdb, **kwargs )
+                    if ref is None:
+                        raise ValueError(
+                            f'Cannot find a reference image corresponding to the datastore inputs: {ds.inputs_str}; '
+                            f'get_reference parmeters: {kwargs}; '
+                            f'referencing prov = {ds.prov_tree["referencing"]}; '
+                            f'(ra,dec) = ({ra}, {dec})'
+                        )
 
                 prov = ds.get_provenance('subtraction', self.pars.get_critical_pars())
-                sub_image = None if do_not_load else ds.get_sub_image( prov, session=session )
+                sub_image = None if do_not_load else ds.get_sub_image( prov, pgdb=pgdb )
                 if sub_image is None:
                     self.has_recalculated = True
-                    image = ds.get_image(session=session)
-                    zp = ds.get_zp(session=session)
+                    image = ds.get_image(pgdb=pgdb)
+                    zp = ds.get_zp(pgdb=pgdb)
                     if zp is None:
                         raise ValueError(f'Cannot find an zeropoint corresponding to the datastore inputs: '
                                          f'{ds.inputs_str}')
@@ -614,7 +676,7 @@ class Subtractor:
                     SCLogger.debug( f"Making new subtraction from image {image.id} path {image.filepath} , "
                                     f"reference {ds.reference.id} refimage {ds.ref_image.id} "
                                     f"path {ds.ref_image.filepath}" )
-                    sub_image = Image.from_ref_and_new(ds.reference, zp)
+                    sub_image = Image.from_ref_and_new( ref=ds.reference, new_image_zp=zp, new_image=ds.image )
                     sub_image.is_sub = True
                     sub_image.provenance_id = prov.id
                     sub_image.set_coordinates_to_match_target( image )
@@ -623,11 +685,6 @@ class Subtractor:
 
                 # See if we have to align the images
                 if ( self.pars.trust_aligned_images and
-                     isinstance( ds.aligned_new_image, Image ) and
-                     isinstance( ds.aligned_new_sources, SourceList ) and
-                     isinstance( ds.aligned_new_psf, PSF ) and
-                     isinstance( ds.aligned_new_bg, Background ) and
-                     isinstance( ds.aligned_new_zp, ZeroPoint ) and
                      isinstance( ds.aligned_ref_image, Image ) and
                      isinstance( ds.aligned_ref_sources, SourceList ) and
                      isinstance( ds.aligned_ref_psf, PSF ) and
@@ -640,32 +697,9 @@ class Subtractor:
                     to_index = self.pars.alignment_index
                     aligner = ImageAligner(**self.parameters_to_initialize_alignment)
                     if to_index == 'ref':
-                        # In *lots* of places the code makes the assumption that we align the ref to the new.
-                        # If we ever want to be able to align the new to the ref, we have to go all the way
-                        # through the code and find every place it might affect.
-                        SCLogger.error( "Aligning new to ref will violate assumptions in detection.py,"
-                                        "measuring.py, fakeinjection.py, and probably elsewhere." )
+                        SCLogger.error( "Aligning new to ref doesn't work, here and in many other places "
+                                        "there is a built-in assumption that we're aligning ref to new." )
                         raise RuntimeError( "Aligning new to ref not supported; align ref to new instead" )
-
-                        for needed in [ ds.image, ds.sources, ds.bg, ds.wcs, ds.zp, ds.ref_image, ds.ref_sources ]:
-                            if needed is None:
-                                raise RuntimeError( "Not all data products needed for alignment to ref "
-                                                    "are present in the DataStore" )
-
-                        ( aligned_image, aligned_sources,
-                          aligned_bg, aligned_psf ) = aligner.run( ds.image, ds.sources, ds.bg, ds.psf, ds.wcs, ds.zp,
-                                                                   ds.ref_image, ds.ref_sources, ds.ref_wcs )
-                        ds.aligned_new_image = aligned_image
-                        ds.aligned_new_sources = aligned_sources
-                        ds.aligned_new_bg = aligned_bg
-                        ds.aligned_new_psf = aligned_psf
-                        ds.aligned_new_zp = ds.get_zp()
-                        ds.aligned_ref_image = ds.ref_image
-                        ds.aligned_ref_sources = ds.ref_sources
-                        ds.aligned_ref_bg = ds.ref_bg
-                        ds.aligned_ref_psf = ds.ref_psf
-                        ds.aligned_ref_zp = ds.ref_zp
-                        ds.aligned_wcs = ds.ref_wcs
 
                     elif to_index == 'new':
                         SCLogger.debug( "Aligning ref to new" )
@@ -677,20 +711,22 @@ class Subtractor:
                                                     "are present in the DataStore" )
 
                         ( aligned_image, aligned_sources,
-                          aligned_bg, aligned_psf ) = aligner.run( ds.ref_image, ds.ref_sources, ds.ref_bg,
-                                                                   ds.ref_psf, ds.ref_wcs, ds.ref_zp,
-                                                                   ds.image, ds.sources, ds.wcs )
-                        ds.aligned_new_image = ds.image
-                        ds.aligned_new_sources = ds.get_sources()
-                        ds.aligned_new_bg = ds.get_background()
-                        ds.aligned_new_psf = ds.get_psf()
-                        ds.aligned_new_zp = ds.get_zp()
+                          aligned_bg, aligned_psf, warped_provs ) = aligner.run( ds.ref_image,
+                                                                                 ds.ref_sources,
+                                                                                 ds.ref_bg,
+                                                                                 ds.ref_psf,
+                                                                                 ds.ref_wcs,
+                                                                                 ds.ref_zp,
+                                                                                 ds.image,
+                                                                                 ds.sources,
+                                                                                 ds.wcs )
                         ds.aligned_ref_image = aligned_image
                         ds.aligned_ref_sources = aligned_sources
                         ds.aligned_ref_bg = aligned_bg
                         ds.aligned_ref_psf = aligned_psf
                         ds.aligned_ref_zp = ds.ref_zp
                         ds.aligned_wcs = ds.wcs
+                        ds.warped_provs = warped_provs
 
                         # We are going to make the aligned ref image as *not* a coadd, because
                         #   it's not a direct coadd, it's a warp of another image.  Scary.  But,
@@ -699,7 +735,7 @@ class Subtractor:
                         ds.aligned_ref_image.is_coadd = False
 
                     else:
-                        raise ValueError( f"alignment_index must be ref or new, not {to_index}" )
+                        raise ValueError( f"alignment_index must new, not {to_index}" )
 
                     del aligner
                     ImageAligner.cleanup_temp_images()
@@ -708,12 +744,11 @@ class Subtractor:
 
                 if self.pars.method == 'naive':
                     SCLogger.debug( "Subtracting with naive" )
-                    outdict = self._subtract_naive( ds.aligned_new_image, ds.aligned_ref_image )
+                    outdict = self._subtract_naive( ds.image, ds.aligned_ref_image )
 
                 elif self.pars.method == 'hotpants':
                     SCLogger.debug( "Subtracting with hotpants" )
-                    outdict = self._subtract_hotpants( ds.aligned_new_image, ds.aligned_new_bg,
-                                                       ds.aligned_new_sources, ds.aligned_wcs, ds.aligned_new_psf,
+                    outdict = self._subtract_hotpants( ds.image, ds.bg, ds.sources, ds.wcs, ds.psf,
                                                        ds.aligned_ref_image, ds.aligned_ref_bg,
                                                        ds.aligned_ref_sources, ds.aligned_wcs, ds.aligned_ref_psf )
 
@@ -721,8 +756,7 @@ class Subtractor:
 
                 elif self.pars.method == 'zogy':
                     SCLogger.debug( "Subtracting with zogy" )
-                    outdict = self._subtract_zogy( ds.aligned_new_image, ds.aligned_new_bg,
-                                                   ds.aligned_new_psf, ds.aligned_new_zp,
+                    outdict = self._subtract_zogy( ds.image, ds.bg, ds.psf, ds.zp,
                                                    ds.aligned_ref_image, ds.aligned_ref_bg,
                                                    ds.aligned_ref_psf, ds.aligned_ref_zp )
 
@@ -731,7 +765,7 @@ class Subtractor:
                     #   about whether that's the right thing to do, and it
                     #   gets renormalized to its σ in detection.py anyway.
 
-                    normfac = 10 ** ( 0.4 * ( ds.aligned_new_zp.zp - outdict['zero_point'] ) )
+                    normfac = 10 ** ( 0.4 * ( ds.zp.zp - outdict['zero_point'] ) )
                     outdict['outim'] *= normfac
                     outdict['outwt'] /= normfac*normfac
                     outdict['alpha'] *= normfac
@@ -749,6 +783,7 @@ class Subtractor:
                 sub_image.data = outdict['outim']
                 sub_image.weight = outdict['outwt']
                 sub_image.flags = outdict['outfl']
+                sub_image.warped_ref_source_id = ds.aligned_ref_sources.id
                 if 'outimhdr' in outdict:
                     sub_image.header = outdict['outimhdr']
                 if 'score' in outdict:
@@ -794,6 +829,11 @@ class Subtractor:
 
                 ds.sub_image = sub_image
 
+                # Aligned filepaths are perverse.  We're going to name them after the sub image,
+                #   *not* after the image they are warped from!  They will be more unique this way.
+                #   We expect references to be warped a lot of different times, but a given
+                #   sub image will only have one warped ref that goes with it.
+                ds.aligned_ref_image.filepath = sub_image.invent_filepath( append="_WarpedRef" )
             if ds.update_runtimes:
                 ds.runtimes['subtraction'] = time.perf_counter() - t_start
             if ds.update_memory_usages:

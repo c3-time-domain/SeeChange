@@ -18,6 +18,7 @@ from models.enums_and_bitflags import PSFFormatConverter, psf_badness_inverse
 from models.image import Image
 from models.source_list import SourceList
 from util.logger import SCLogger
+from util.util import asUUID
 
 
 class PSF(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
@@ -74,6 +75,37 @@ class PSF(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
         doc="Approximate FWHM of seeing in pixels; use for a broad estimate, doesn't capture spatial variation."
     )
 
+    offset_x = sa.Column(
+        sa.SMALLINT,
+        nullable=True,
+        server_default=None,
+        doc=( 'If this is not None, then the PSF data was actually originally for a larger image, but now '
+              'this object is associated with a smaller image.  Any evaluation of the PSF will assume '
+              'that the lower-left pixel is offset by this much from (0,0) when interpreting the internal '
+              'PSF data.  This should (...should...) be transparent outside this class.' )
+    )
+
+    offset_y = sa.Column(
+        sa.SMALLINT,
+        nullable=True,
+        server_default=None,
+        doc='See offset_x'
+    )
+
+    trimmed_width = sa.Column(
+        sa.SMALLINT,
+        nullable=True,
+        server_default=None,
+        doc='Width of the trimmed image this PSF is for.'
+    )
+
+    trimmed_height = sa.Column(
+        sa.SMALLINT,
+        nullable=True,
+        server_default=None,
+        doc='Height of the trimmed image this PSF is for.'
+    )
+
 
     # ****************************************
     # end of schema definition
@@ -86,6 +118,7 @@ class PSF(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
 
     # ****************************************
 
+    _supports_offset_psf = False
 
     @property
     def data( self ):
@@ -165,9 +198,14 @@ class PSF(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
         # Normally you shouldn't use this, but if you're doing a test you may
         #   need to set this manually
         self._image_shape = val
+        self.trimmed_width = val[1] if self.trimmed_width is not None else None
+        self.trimmed_height = val[0] if self.trimmed_height is not None else None
 
     def _load_image_shape( self ):
-        raise NotImplementedError( f"{self.__class__.__name__} needs to implement _load_image_shape" )
+        if ( self.trimmed_width is not None ) and ( self.trimmed_height is not None ):
+            self._image_shape = ( self.trimmed_height, self.trimmed_width )
+        else:
+            raise NotImplementedError( f"{self.__class__.__name__} needs to implement _load_image_shape" )
 
     @property
     def clip_shape(self):
@@ -233,6 +271,31 @@ class PSF(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
         """Get a dict with the allowed values of badness that can be assigned to this object"""
         return psf_badness_inverse
 
+
+    @classmethod
+    def create( cls, **kwargs ):
+        if '_id' in kwargs and isinstance( kwargs['_id'], str ):
+            kwargs['_id'] = asUUID( kwargs['_id'] )
+
+        if '_format' in kwargs:
+            psfformat = kwargs['_format']
+        elif 'format' in kwargs:
+            psfformat = PSFFormatConverter.to_int( kwargs['format'] )
+            kwargs['_format'] = psfformat
+            del kwargs['format']
+        else:
+            raise ValueError( "Can't make a PSF without a format" )
+
+        # Note!  Gotta use PSF here, not cls, so we get all the subclasses of PSF
+        #   even if this is called on a different class.
+        for subclass in PSF.__subclasses__():
+            # These particular variable names vestigal from transitioning away from SQLAZlchemy
+            if subclass.__mapper_args__[ "polymorphic_identity" ] == psfformat:
+                return subclass( **kwargs )
+
+        raise ValueError( f"Unknown psf _format {psfformat}" )
+
+
     def __init__( self, *args, **kwargs ):
         FileOnDiskMixin.__init__( self, **kwargs )
         HasBitFlagBadness.__init__(self)
@@ -250,6 +313,11 @@ class PSF(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
         for key, value in kwargs.items():
             if hasattr( self, key ):
                 setattr( self, key, value )
+
+        if not all( (getattr(self, x) is None) == (self.offset_x is None)
+                    for x in ( 'offset_y', 'trimmed_width', 'trimmed_height' ) ):
+            raise ValueError( "Must have all or none of the trimmed properties." )
+
 
     @sa.orm.reconstructor
     def init_on_load( self ):
@@ -396,6 +464,8 @@ class PSF(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
         newpsf._format = self._format
         newpsf.sources_id = self.sources_id
         newpsf.fwhm_pixels = self.fwhm_pixels
+        newpsf.offset_x = self.offset_x
+        newpsf.offset_y = self.offset_y
         newpsf.data = self.data
         newpsf.header = self.header
         newpsf.info = self.info
@@ -404,6 +474,29 @@ class PSF(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
         newpsf._clip_shape = self._clip_shape
         newpsf._oversampling_factor = self._oversampling_factor
         return newpsf
+
+
+    def trim( self, x0, x1, y0, y1, trimmed_sources=None ):
+        """Make a shallow copy of the PSF for a trimmed image.  WARNING: will point to the same data blocks!
+
+        Subclasses may need to override this, e.g. PSFExPSF does.
+
+        """
+
+        if any( i is None for i in (x0, x1, y0, y1) ):
+            raise ValueError( "x0, x1, y0, y1 must all be given" )
+
+        newpsf = self.copy()
+        newpsf.offset_x = x0 if newpsf.offset_x is None else newpsf.offset_x + x0
+        newpsf.offset_y = y0 if newpsf.offset_y is None else newpsf.offset_y + y0
+        newpsf.trimmed_width = x1 - x0
+        newpsf.trimmed_height = y1 - y0
+        newpsf._image_shape = ( y1-y0, x1-x0 )
+        newpsf.sources_id = ( trimmed_sources.id if isinstance( trimmed_sources, SourceList )
+                              else None if trimmed_sources is None
+                              else asUUID(trimmed_sources) )
+        return newpsf
+
 
     def free( self ):
         """Free loaded PSF memory.
@@ -597,7 +690,7 @@ class PSF(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
 
           norm: bool, default True
             Normalize the psf to 1.0, before adding noise if any.  (This
-            seems to be necessary with PSFEx.)
+            seems to be necessary with PSFEx.)  (TODO: worry about this.)
 
           noisy: bool, default False
             If True, will also scatter the pixel values using
@@ -639,6 +732,13 @@ class PSF(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness):
             y = self.image_shape[0] / 2.
 
         psfbase = self.get_resampled_psf( x, y, dtype=np.float64 )
+
+        # Now that we aren't going to pass x and y off to any other functions,
+        #   correct for offset
+
+        if self.offset_x is not None:
+            x += self.offset_x
+            y += self.offset_y
 
         # round() isn't the right thing to use here, because it will
         #   behave differently when x - round(x) = 0.5 based on whether
@@ -800,6 +900,8 @@ class PSFExPSF(PSF):
         "polymorphic_identity": 1
     }
 
+    _supports_offset_psf = True
+
     def __init__( self, *args, **kwargs ):
         super().__init__( *args, **kwargs )
         self.format = 'psfex'
@@ -820,6 +922,22 @@ class PSFExPSF(PSF):
         # Data is a 3d array; the first index is the index over the orders
         self._raw_clip_shape = self.data.shape[1:]
 
+    def trim( self, x0, x1, y0, y1, trimmed_sources=None ):
+        # This subclass does *not* use offset_x and offset_y,
+        #   but instead adjusts the header.
+        newpsf = PSF.trim( self, x0, x1, y0, y1, trimmed_sources=trimmed_sources )
+        # Gotta copy the header so we can mangle it
+        newpsf.header = fits.Header( newpsf.header )
+        newpsf.header['POLZERO1'] += x0
+        newpsf.header['POLZERO2'] += y0
+        newpsf.header['IMAXIS1'] = x1 - x0
+        newpsf.header['IMAXIS2'] = y1 - y0
+        newpsf.offset_x = None
+        newpsf.offset_y = None
+        newpsf.trimmed_width = None
+        newpsf.trimmed_height = None
+        return newpsf
+
 
     def get_resampled_psf( self, x, y, dtype=np.float64 ):
         psforder = int( self.header['POLDEG1'] )
@@ -827,6 +945,10 @@ class PSFExPSF(PSF):
         xsc = float( self.header['POLSCAL1'] )
         y0 = float( self.header['POLZERO2'] ) - 1
         ysc = float( self.header['POLSCAL2'] )
+
+        if self.offset_x is not None:
+            x += self.offset_x
+            y += self.offset_y
 
         psfbase = np.zeros_like( self.data[0,:,:], dtype=dtype )
         off = 0
@@ -920,11 +1042,19 @@ class DeltaPSF(PSF):
         "polymorphic_identity": 2
     }
 
+    # Supporting offset PSF here is trivial becasue the PSF is not spatially varaible
+    _supports_offset_psf = True
+
     def __init__( self, *args, **kwargs ):
         super().__init__( *args, **kwargs )
         self.format = 'delta'
 
     def get_clip(  self, x=None, y=None, flux=1.0, norm=True, noisy=False, gain=1., rng=None, dtype=np.float64 ):
+        if x is None:
+            x = self.image_shape[1] / 2.
+        if y is None:
+            y = self.image_shape[0] / 2.
+
         fx = x - np.floor( x + 0.5 )
         fy = y - np.floor( y + 0.5 )
 
@@ -997,12 +1127,15 @@ class GaussianPSF(PSF):
         "polymorphic_identity": 3
     }
 
+    # Supporting offset PSF here is trivial becasue the PSF is not spatially varaible
+    _supports_offset_psf = True
+
     def __init__( self, *args, **kwargs ):
         super().__init__( *args, **kwargs )
         self.format = 'gaussian'
 
     def get_clip( self, x=None, y=None, flux=1.0, norm=True,
-                           noisy=False, gain=1., rng=None, dtype=np.float64 ):
+                  noisy=False, gain=1., rng=None, dtype=np.float64 ):
         fx = np.floor( x + 0.5 ) - x
         fy = np.floor( y + 0.5 ) - y
         halfwid = int( 5. * self.fwhm_pixels + 0.5 )
@@ -1056,6 +1189,9 @@ class ImagePSF(PSF):
         # "image" in enums_and_bitflags.py::PSFFormatConverter
         "polymorphic_identity": 4
     }
+
+    # Supporting offset PSF here is near-trivial becasue the PSF is not spatially varaible
+    _supports_offset_psf = True
 
     def __init__( self, *args, **kwargs ):
         super().__init__( *args, **kwargs )
@@ -1163,7 +1299,10 @@ class ImagePSF(PSF):
             if 'psf' not in h5f:
                 raise ValueError( "No psf group found in the file" )
 
-            self._image_shape = ( h5f["psf"].attrs["image_shape_0"], h5f["psf"].attrs["image_shape_1"] )
+            if self.offset_x is None:
+                self._image_shape = ( h5f["psf"].attrs["image_shape_0"], h5f["psf"].attrs["image_shape_1"] )
+            else:
+                self._image_shape = ( self.trimmed_height, self.trimmed_width )
             self._clip_shape = ( h5f["psf"].attrs["clip_shape_0"], h5f["psf"].attrs["clip_shape_1"] )
             self._oversampling_factor = h5f["psf"].attrs["oversampling_factor"]
             self._data = h5f["psf/data"][:]

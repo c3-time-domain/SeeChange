@@ -1,11 +1,13 @@
 import os
 import pathlib
+import textwrap
 import random
 import time
 import subprocess
 import types
 
 import numpy as np
+from psycopg import sql
 
 import astropy.table
 import astropy.wcs.utils
@@ -18,10 +20,11 @@ from util.exceptions import BadMatchException
 import improc.scamp
 import improc.tools
 
-from models.base import FileOnDiskMixin
+from models.base import FileOnDiskMixin, PGDB
 from models.provenance import Provenance
 from models.image import Image
 from models.source_list import SourceList
+from models.psf import PSF
 from models.background import Background
 from models.enums_and_bitflags import string_to_bitflag, flag_image_bits_inverse
 
@@ -89,6 +92,26 @@ class ParsImageAligner(Parameters):
             critical=True,
         )
 
+        self.swarp_trust_raw_wcs = self.add_par(
+            name = 'swarp_trust_raw_wcs',
+            default = False,
+            par_types = bool,
+            docstring = ( "If False, then when aligning images try to make a WCS optimized for going from "
+                          "one image to another.  If True, just use the existing WCSes for alignment." ),
+            critical = True
+        )
+
+
+        self.swarp_use_unwarped_psf = self.add_par(
+            name = 'swarp_use_unwarped_psf',
+            default = False,
+            par_types = bool,
+            docstring = ( "If False, then a new psf is determined from the warped image, which is what you "
+                          "really need to do.  If this is True, then pretend the psf of the unwarped image "
+                          "is the same as the psf of the warped image." ),
+            critical = True
+        )
+
         self.scamp_timeout = self.add_par(
             'scamp_timeout',
             60,
@@ -138,7 +161,7 @@ class ImageAligner:
         self.pars = ParsImageAligner( **kwargs )
 
     @staticmethod
-    def image_source_warped_to_target(image, target):
+    def image_source_warped_to_target(image, target, image_zp, target_wcs, provenance_id):
         """Create a new Image object from the source and target images.
 
         Most image attributes are from the source image, but the coordinates
@@ -147,12 +170,22 @@ class ImageAligner:
         The image type is Warped and the bitflag is 0, with the upstream bitflag
         set to the bitflags of the source and target.
 
+        This does NOT actually do the warping, it just sets up the Image object.
+
         Parameters
         ----------
         image: Image
             The source image to be warped.
+
         target: Image
             The target image to which the source image will be warped.
+
+        image_zp : ZeroPoint
+
+        target_wcs : WorldCoordiantes
+
+        provenance_id : Provenance
+           Provenance of the warped image
 
         Returns
         -------
@@ -173,14 +206,29 @@ class ImageAligner:
 
         warpedim.calculate_coordinates()
 
-        # TODO: are the WorldCoordinates also included? Are they valid for the warped image?
-        # --> warpedim should get a copy of target.wcs
-
-        warpedim.type = 'Warped'
+        warpedim.type = ( 'ComDiffWarped' if image.type == 'ComDiff'
+                          else 'DiffWarped' if image.type == 'Diff'
+                          else 'ComWarped' if image.type in ( 'ComSci', 'ComBias', 'ComDark', 'ComDomeFlat',
+                                                              'ComSkyFlat', 'ComTwiFlat' )
+                          else 'Warped' )
+        warpedim.is_coadd = False   # It's not a coadd, it's a warp of a coadd (maybe), which is different
+        warpedim.is_trim = False    # It's not a trim, it's a warp of a trim (maybe), which is different
+        warpedim.is_sub = False     # ...you get the picture
+        warpedim.provenance_id = provenance_id
+        warpedim.info['unwarped_zp_id'] = image_zp.id
+        warpedim.info['target_wcs_id'] = target_wcs.id
+        warpedim._warp_parent_source_zp = image_zp.id
+        warpedim._warp_parent_target_wcs = target_wcs.id
         warpedim._set_bitflag( 0 )
         warpedim._upstream_bitflag = 0
-        warpedim._upstream_bitflag |= image.bitflag
-        warpedim._upstream_bitflag |= target.bitflag
+        warpedim._upstream_bitflag |= image_zp.bitflag
+        warpedim._upstream_bitflag |= target_wcs.bitflag
+
+        warpedim.filepath = None
+        warpedim.md5sum = None
+        warpedim.md5sum = None
+        warpedim.md5sum_components = None             # Which is the right thing to do with extensions???
+        # warped_image.md5sum_components = [ None, None, None ]
 
         return warpedim
 
@@ -321,7 +369,8 @@ class ImageAligner:
                 residfile.unlink( missing_ok=True )
 
     def _align_swarp( self, source_image, source_sources, source_bg, source_psf, source_wcs, source_zp,
-                      target_image, target_sources, target_wcs, warped_prov, warped_sources_prov ):
+                      target_image, target_sources, target_wcs, warped_prov, warped_sources_prov,
+                      trust_raw_wcs=False, use_unwarped_psf=False ):
         """Use scamp and swarp to align source_image to target_image.
 
         Parameters
@@ -373,6 +422,16 @@ class ImageAligner:
 
           warped_sources_prov: Provenance
             The provenance to assign to the sources extracted from the warped image.
+
+          trust_raw_wcs: bool, default False
+            If true, take the WCSes of both images at face value.  If False, try to make
+            a WCS based on matching the sources of the two images that will (ideally)
+            be better for image transformation than just using the two sky solutions.
+
+          use_unwarped_psf: bool, default False
+            ...this is probably a really bad idea.  But.  If this is True, instead of trying
+            to measure the psf on the warped image, just pretend that the ps from the unwarped
+            image (source_psf) is still the right psf for the warped image.
 
         Returns
         -------
@@ -446,8 +505,11 @@ class ImageAligner:
 
         try:
 
-            swarp_fodder_wcs = self.get_swarp_fodder_wcs( source_image, source_sources, source_wcs, source_zp,
-                                                          target_image, target_sources, target_wcs )
+            if trust_raw_wcs:
+                swarp_fodder_wcs = target_wcs.wcs
+            else:
+                swarp_fodder_wcs = self.get_swarp_fodder_wcs( source_image, source_sources, source_wcs, source_zp,
+                                                              target_image, target_sources, target_wcs )
 
             # Write out the .head file that swarp will use to figure out what to do
             hdr = swarp_fodder_wcs.to_header( relax=True )
@@ -532,8 +594,8 @@ class ImageAligner:
             if res.returncode != 0:
                 raise SubprocessFailure(res)
 
-            warpedim = self.image_source_warped_to_target( source_image, target_image )
-            warpedim.provenance_id = warped_prov.id
+            warpedim = self.image_source_warped_to_target( source_image, target_image, source_zp, target_wcs,
+                                                           warped_prov.id )
 
             warpedim.data, warpedim.header = read_fits_image( outim, output="both" )
             # TODO: either make this not a hardcoded header value, or verify
@@ -547,10 +609,6 @@ class ImageAligner:
             warpedim.weight = read_fits_image(outwt)
             warpedim.flags = read_fits_image(outfl)
             warpedim.flags = np.rint(warpedim.flags).astype(np.int16)  # convert back to integers
-
-            warpedim.md5sum = None
-            # warpedim.md5sum_components = [ None, None, None ]
-            warpedim.md5sum_components = None
 
             # warp the background noise image:
             # (There is an assumption here that the warped image has the
@@ -590,6 +648,8 @@ class ImageAligner:
                 warpedbg.counts = np.zeros_like(warpedbg.variance)
             elif source_bg.format == 'polynomial':
                 raise RuntimeError( "polynomial backgrounds not supported" )
+            elif source_bg.format != 'scalar':
+                raise RuntimeError( f"Unknown background format {source_bg.format}" )
 
             # re-calculate the source list and PSF for the warped image
             source_sources_prov = Provenance.get( source_sources.provenance_id )
@@ -599,7 +659,15 @@ class ImageAligner:
             #   other than calling the "run" method of one of these pipeline objects.
             fakeds = types.SimpleNamespace( wcs=target_wcs )
             extractor.pars.subconfig_update( fakeds )
-            warpedsources, warpedpsf, _, _ = extractor.extract_sources( warpedim, warpedbg )
+            if not use_unwarped_psf:
+                # Always want to measure the psf on the warped image, warping could have changed it
+                extractor.pars.measure_psf = True
+                warpedsources, warpedpsf, _, _ = extractor.extract_sources( warpedim, warpedbg )
+            else:
+                # ...unless we're foolish
+                extractor.pars.measure_psf = False
+                warpedsources, warpedpsf, _, _ = extractor.extract_sources( warpedim, warpedbg,
+                                                                            psf=source_psf )
 
             prov = Provenance(
                 code_version_id=Provenance.get_code_version( process='extraction' ).id,
@@ -673,6 +741,11 @@ class ImageAligner:
                                   parameters=self.pars.get_critical_pars(),
                                   upstreams=upstrprovs
                                  )
+        notwarped_prov = Provenance( code_verson_id=code_version.id,
+                                     process='alignment',
+                                     parameters={ 'alignment': 'just bgsub' },
+                                     upstreams=upstrprovs
+                                    )
         tmp_extractor = Detector()
         tmp_extractor.pars.override( source_sources_prov.parameters, ignore_addons=True )
         code_version = Provenance.get_code_version( process='extraction' )
@@ -695,8 +768,11 @@ class ImageAligner:
                                      paramters=tmp_photometor.pars.get_critical_pars(),
                                      upstreams=[ warped_wcs_prov ]
                                     )
-
-        return warped_prov, warped_sources_prov, warped_wcs_prov, warped_zp_prov
+        return { 'warped': warped_prov,
+                 'notwarped': notwarped_prov,
+                 'sources': warped_sources_prov,
+                 'wcs': warped_wcs_prov,
+                 'zp': warped_zp_prov }
 
     # TODO : pass a DataStore for source and target instead of all these parameters
     def run( self,
@@ -738,111 +814,141 @@ class ImageAligner:
 
         Returns
         -------
-          Image, Sources, Background, PSF
-            Versions of all of these, warped from source to target
+          Image, Sources, Background, PSF, dict
+             Warped versions of the input stuff.  Sources, Backround,
+             and PSF may have been re-determined by running the
+             appropriate processes on the warped image (CHECK THIS).
 
-            There are some implicit assumptions that these will never
-            get saved to the database.
+             The dictionary is a dictionary of Provenance objects for
+             the warped data product; it has keys:
+                 warped
+                 notwarped
+                 sources
+                 wcs
+                 zp
 
         """
         SCLogger.debug( f"ImageAligner.run: aligning image {source_image.id} ({source_image.filepath}) "
                         f"to {target_image.id} ({target_image.filepath})" )
 
-        upstrprovs = Provenance.get_batch( [ source_image.provenance_id, source_sources.provenance_id,
-                                             target_image.provenance_id, target_sources.provenance_id ] )
+        upstrprovs = Provenance.get_batch( [ source_zp.provenance_id, target_wcs.provenance_id ] )
         source_sources_prov = Provenance.get( source_sources.provenance_id )
-        ( warped_prov, warped_sources_prov,
-          _warped_wcs_prov, _warped_zp_prov ) = self.get_provenances( upstrprovs, source_sources_prov )
+        warped_provs = self.get_provenances( upstrprovs, source_sources_prov )
+        warped_prov = warped_provs[ 'warped' ]
+        notwarped_prov = warped_provs[ 'notwarped' ]
+        warped_sources_prov = warped_provs[ 'sources' ]
 
-        if target_image == source_image:
-            SCLogger.debug( "...target and source are the same, not warping " )
-            warped_image = Image.copy_image( source_image )
-            warped_image.type = 'Warped'
-            warped_image.data = source_bg.subtract_me( source_image.data )
-            if ( warped_image.weight is None or warped_image.flags is None ):
-                raise RuntimeError( "ImageAligner.run: source image weight and flags missing!  I can't cope!" )
-            warped_image.filepath = None
-            warped_image.md5sum = None
-            warped_image.md5sum_components = None             # Which is the right thing to do with extensions???
-            # warped_image.md5sum_components = [ None, None, None ]
-
-            warped_sources = source_sources.copy()
-            warped_sources.provenance_id = warped_sources_prov.id
-            warped_sources.image_id = warped_image.id
-            warped_sources.data = source_sources.data
-            warped_sources.info = source_sources.info
-            warped_sources.filepath = None
-            warped_sources.md5sum = None
-
-            warped_bg = Background(
-                format = source_bg.format,
-                method = source_bg.method,
-                value = 0,                  # since we subtracted above
-                noise = source_bg.noise,
-                sources_id = warped_sources.id,
-                image_shape = warped_image.data.shape,
-                filepath = None,
-            )
-            if warped_bg.format == 'map':
-                warped_bg.counts = np.zeros_like( source_bg.counts )
-                warped_bg.variance = source_bg.variance              # note: is a reference, not a copy...
-
-            warped_psf = source_psf.copy()
-            warped_psf.sources_id = warped_sources.id
-            warped_psf.filepath = None
-            warped_psf.md5sum = None
-
-            # warped_wcs = source_wcs.copy()
-            # warped_wcs.sources_id = warped_sources.id
-            # warped_wcs.filepath = None
-            # warped_wcs.md5sum = None
-            # warped_wcs.provenance_id = warped_wcs_prov.id
-
-            # warped_zp = source_zp.copy()
-            # warped_zp.sources_id = warped_sources.id
-            # warped_zp.provenance_id = warped_zp_prov.id
-
-        else:  # Do the warp
-            if self.pars.method == 'swarp':
-                SCLogger.debug( '...aligning with swarp' )
-                if ( source_sources.format != 'sextrfits' ) or ( target_sources.format != 'sextrfits' ):
-                    raise RuntimeError( 'swarp ImageAligner requires sextrfits sources' )
-                ( warped_image, warped_sources,
-                  warped_bg, warped_psf ) = self._align_swarp( source_image,
-                                                               source_sources,
-                                                               source_bg,
-                                                               source_psf,
-                                                               source_wcs,
-                                                               source_zp,
-                                                               target_image,
-                                                               target_sources,
-                                                               target_wcs,
-                                                               warped_prov,
-                                                               warped_sources_prov )
+        # See if this warped image is already in the database
+        with PGDB() as pgdb:
+            q = sql.SQL( textwrap.dedent(
+                """\
+                SELECT i.* FROM image_warp_parent iwp
+                INNER JOIN images i ON i._id=iwp.warped_id
+                WHERE iwp.unwarped_zp_id={zpid}
+                  AND iwp.target_wcs_id={wcsid}
+                  AND i.provenance_id={provid}
+                """
+            ) ).format( zpid=source_zp.id, wcsid=target_wcs.id,
+                        provid=notwarped_prov.id if target_image.id==source_image.id else warped_prov.id )
+            rows, _cols = pgdb.execute( q )
+            if len(rows) > 1:
+                raise RuntimeError( "Database corruption, warped image unique failure." )
+            elif len(rows) == 1:
+                warped_image = Image.create( **(rows[0]) )
             else:
-                raise ValueError( f'alignment method {self.pars.method} is unknown' )
+                warped_image = None
 
-        # Right now we don't save any warped images to the database, so being
-        #  careful about provenances probably isn't necessary.  (I'm not sure
-        #  we're being careful enough....)
-        warped_image.provenance_id = warped_prov.id
-        warped_image.info['original_image_id'] = source_image.id
-        warped_image.info['original_image_filepath'] = source_image.filepath  # verification of aligned images
-        warped_image.info['alignment_parameters'] = self.pars.get_critical_pars()
+            if warped_image is not None:
+                q = ( sql.SQL( "SELECT s.* FROM source_lists s "
+                               "WHERE image_id={imid} AND provenance_id={provid}" )
+                      .format( imid=warped_image.id,
+                               provid=source_sources.provenance_id if target_image.id==source_image.id
+                               else warped_sources_prov.id )
+                     )
+                rows, _cols = pgdb.execute( q )
+                if len(rows) == 0:
+                    raise RuntimeError( "Warped image found in database, but not warped sources. "
+                                        "That's not supposed to happen." )
+                else:
+                    # Just going to assume bg and psf exist, because they're supposed to if sources does
+                    warped_sources = SourceList.create( **(rows[0]) )
+                    rows, _cols = pgdb.execute( sql.SQL( "SELECT p.* FROM psfs WHERE source_id={sid}" )
+                                                .format( sid=warped_sources.id ) )
+                    warped_psf = PSF( **(rows[0]) )
+                    rows, _cols = pgdb.execute( sql.SQL( "SELECT p.* FROM backgrounds WHERE source_id={sid}" )
+                                                .format( sid=warped_sources.id ) )
+                    warped_bg = Background( **(rows[0]) )
 
-        upstream_bitflag = source_image.bitflag
-        upstream_bitflag |= target_image.bitflag
-        upstream_bitflag |= source_sources.bitflag
-        upstream_bitflag |= target_sources.bitflag
-        upstream_bitflag |= source_wcs.bitflag
-        upstream_bitflag |= source_zp.bitflag
+        if warped_image is None:
+            if target_image.id == source_image.id:
+                SCLogger.debug( "...target and source are the same, not warping " )
+                warped_image = self.image_source_warped_to_target( source_image, target_image, source_zp, target_wcs,
+                                                                   notwarped_prov.id )
+                warped_image.data = source_bg.subtract_me( source_image.data )
+                if ( warped_image.weight is None or warped_image.flags is None ):
+                    raise RuntimeError( "ImageAligner.run: source image weight and flags missing!  I can't cope!" )
 
-        warped_image._upstream_bitflag = upstream_bitflag
-        # TODO, upstream_bitflags should updated for
-        #   other things too!!!!!  (For instance, target wcs, since if
-        #   that's bad, the alignment will be bad.)  (This is one of
-        #   several things that motivates the note
-        #   in the docstring about assuming things
-        #   aren't saved to the database.)
+                warped_sources = source_sources.copy()
+                warped_sources.provenance_id = source_sources.provenance_id
+                warped_sources.image_id = warped_image.id
+                warped_sources.data = source_sources.data
+                warped_sources.info = source_sources.info
+                warped_sources.filepath = None
+                warped_sources.md5sum = None
 
-        return warped_image, warped_sources, warped_bg, warped_psf
+                warped_bg = Background(
+                    format = source_bg.format,
+                    method = source_bg.method,
+                    value = 0,                  # since we subtracted above
+                    noise = source_bg.noise,
+                    sources_id = warped_sources.id,
+                    image_shape = warped_image.data.shape,
+                    filepath = None,
+                )
+                if warped_bg.format == 'map':
+                    warped_bg.counts = np.zeros_like( source_bg.counts )
+                    warped_bg.variance = source_bg.variance              # note: is a reference, not a copy...
+
+                warped_psf = source_psf.copy()
+                warped_psf.sources_id = warped_sources.id
+                warped_psf.filepath = None
+                warped_psf.md5sum = None
+
+            else:  # Do the warp
+                if self.pars.method == 'swarp':
+                    SCLogger.debug( '...aligning with swarp' )
+                    if ( source_sources.format != 'sextrfits' ) or ( target_sources.format != 'sextrfits' ):
+                        raise RuntimeError( 'swarp ImageAligner requires sextrfits sources' )
+                    ( warped_image, warped_sources,
+                      warped_bg, warped_psf ) = self._align_swarp( source_image,
+                                                                   source_sources,
+                                                                   source_bg,
+                                                                   source_psf,
+                                                                   source_wcs,
+                                                                   source_zp,
+                                                                   target_image,
+                                                                   target_sources,
+                                                                   target_wcs,
+                                                                   warped_prov,
+                                                                   warped_sources_prov,
+                                                                   trust_raw_wcs=self.pars.swarp_trust_raw_wcs,
+                                                                   use_unwarped_psf=self.pars.swarp_use_unwarped_psf )
+                else:
+                    raise ValueError( f'alignment method {self.pars.method} is unknown' )
+
+            upstream_bitflag = source_image.bitflag
+            upstream_bitflag |= target_image.bitflag
+            upstream_bitflag |= source_sources.bitflag
+            upstream_bitflag |= target_sources.bitflag
+            upstream_bitflag |= source_wcs.bitflag
+            upstream_bitflag |= source_zp.bitflag
+
+            warped_image._upstream_bitflag = upstream_bitflag
+            # TODO, upstream_bitflags should updated for
+            #   other things too!!!!!  (For instance, target wcs, since if
+            #   that's bad, the alignment will be bad.)  (This is one of
+            #   several things that motivates the note
+            #   in the docstring about assuming things
+            #   aren't saved to the database.)
+
+        return warped_image, warped_sources, warped_bg, warped_psf, warped_provs

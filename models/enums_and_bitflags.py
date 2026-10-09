@@ -158,6 +158,9 @@ class CutoutsFormatConverter( FormatConverter ):
 
 class SourceListFormatConverter( EnumConverter ):
     _dict = {
+        0: 'null',    # Not actually a source list, but a database entry that allows us to directly associate
+                      # a WorldCoordinates with an image without having to completely redesign our whole
+                      # database structure
         1: 'sepnpy',
         2: 'sextrfits',
         3: 'filter',  # when manually constructing a source table from a matched-filter image (e.g., on the subtraction)
@@ -187,6 +190,17 @@ class ImageTypeConverter( EnumConverter ):
         15: 'Fringe',
         16: 'Warped',
         17: 'ComWarped',
+        18: 'DiffWarped',
+        19: 'ComDiffWarped',
+        20: 'ExternComSci',    # "Extern" means externally, so components shouldn't be expected in our database
+        21: 'ExternComDiff',   # Probably only ExternComSci, ExternComBias, ExternComDark, and ExternCom*Flat
+        22: 'ExternComBias',   #   should ever be used; I *guess* we might import an external difference image.
+        23: 'ExternComDark',
+        24: 'ExternComDomeFlat',
+        25: 'ExternComSkyFlat',
+        26: 'ExternComTwiFlat',
+        27: 'ExternComWarped',
+        28: 'ExternComDiffWarped'
     }
     _allowed_values = None
     _dict_filtered = None

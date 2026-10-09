@@ -542,7 +542,7 @@ class Instrument:
         self.check_section_id(section_id, mustbegood=mustbegood)
 
         if self.sections is None:
-            raise RuntimeError("No sections loaded for this instrument. Use fetch_sections() first.")
+            self.fetch_sections()
 
         return self.sections.get( str(section_id) )
 
@@ -2304,7 +2304,7 @@ class DemoInstrument(Instrument):
         self.dark_current = 0.1
         self.gain = 2.0
         self.non_linearity_limit = 10000.0
-        self.saturation_limit = 50000.0
+        self.saturation_limit = 10000.0
         self.allowed_filters = ["g", "r", "i", "z", "Y"]
 
         # will apply kwargs to attributes, and register instrument in the INSTRUMENT_INSTANCE_CACHE

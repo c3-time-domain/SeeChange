@@ -4,7 +4,6 @@ from psycopg import sql
 import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import JSONB, ARRAY
 from sqlalchemy.schema import CheckConstraint
-from sqlalchemy.orm.session import object_session
 from sqlalchemy.ext.declarative import declared_attr
 from sqlalchemy.ext.hybrid import hybrid_property
 
@@ -22,7 +21,6 @@ from models.base import (
     UUIDMixin,
     FileOnDiskMixin,
     SpatiallyIndexed,
-    SmartSession,
     HasBitFlagBadnessButNoUpstream,
 )
 from models.instrument import Instrument
@@ -472,9 +470,6 @@ class Exposure(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, HasBitFlagBad
         self._flags_section_headers = None
         self._header = None
         self._instrument_object = None
-        session = object_session(self)
-        if session is not None:
-            self.update_instrument(session=session)
 
     def __setattr__(self, key, value):
         if key == 'ra' and isinstance(value, str):
@@ -893,10 +888,12 @@ class Exposure(Base, UUIDMixin, FileOnDiskMixin, SpatiallyIndexed, HasBitFlagBad
             If None, will open a new session
             and close it at the end of the function.
         """
-        if self.instrument is None:
-            return
-        with SmartSession(session) as session:
-            self.instrument_object.fetch_sections(session=session, dateobs=self.mjd)
+        raise NotImplementedError( "Don't use update_instrument, we no longer save sensor sections in the database." )
+
+        # if self.instrument is None:
+        #     return
+        # with SmartSession(session) as session:
+        #     self.instrument_object.fetch_sections(session=session, dateobs=self.mjd)
 
     @staticmethod
     def _do_not_require_file_to_exist():

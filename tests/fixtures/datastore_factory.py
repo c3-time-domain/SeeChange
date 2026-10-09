@@ -581,7 +581,7 @@ def datastore_factory(data_dir, request, test_config):
             if use_cache:  # try to find the subtraction image in the cache
                 SCLogger.debug( "make_datstore looking for subtraction image in cache..." )
 
-                sub_im = Image.from_new_and_ref( ds.zp, ds.reference )
+                sub_im = Image.from_new_and_ref( new_image_zp=ds.zp, ref=ds.reference )
                 sub_im.provenance_id = ds.prov_tree['subtraction'].id
                 cache_sub_name = pathlib.Path( sub_im.invent_filepath() )
 
@@ -640,15 +640,10 @@ def datastore_factory(data_dir, request, test_config):
                     SCLogger.debug('loading aligned reference image from cache. ')
                     image_aligned_ref = copy_from_cache( Image, cache_dir, aligned_ref_cache_path, symlink=True )
                     image_aligned_ref.provenance_id = prov_aligned_ref.id
-                    image_aligned_ref.info['original_image_id'] = ds.ref_image.id
-                    image_aligned_ref.info['original_image_filepath'] = ds.ref_image.filepath
-                    image_aligned_ref.info['alignment_parameters'] = ds.prov_tree['subtraction'].parameters['alignment']
                     # TODO FIGURE OUT WHAT'S GOING ON HERE
                     # Not sure why the md5sum_components was [], but it was
                     image_aligned_ref.md5sum_components = [ None, None, None ]
                     image_aligned_ref.save(verify_md5=False, no_archive=True)
-                    # TODO: should we also load the aligned images' sources and PSF?
-                    #  (We've added bg and zp because specific tests need them.)
                     ds.aligned_ref_image = image_aligned_ref
 
                     ds.aligned_ref_sources = copy_from_cache( SourceList, cache_dir, aligned_ref_sources_cache_path,
@@ -662,6 +657,8 @@ def datastore_factory(data_dir, request, test_config):
                     ds.aligned_new_sources = ds.sources
                     ds.aligned_new_bg = ds.bg
                     ds.aligned_new_zp = ds.zp
+                    ds.aligned_ref_image.info['unwarped_zp_id'] = ref.zp.id
+                    ds.aligned_ref_image.info['target_wcs_id'] = ds.wcs.id
 
                 else:
                     strio = io.StringIO()

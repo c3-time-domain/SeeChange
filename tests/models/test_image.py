@@ -31,7 +31,7 @@ from models.background import Background
 from models.world_coordinates import WorldCoordinates
 from models.zero_point import ZeroPoint
 import improc.tools
-from util.config import Config
+from util.config import Config, NoValue
 from util.fits import read_fits_image
 from util.util import asUUID
 
@@ -645,8 +645,6 @@ def test_image_preproc_bitflag( sim_image1, provenance_base ):
 
 
 def test_image_from_exposure( provenance_base, sim_exposure1 ):
-    sim_exposure1.update_instrument()
-
     # demo instrument only has one section
     with pytest.raises(ValueError, match='section_id must be 0 for this instrument.'):
         _ = Image.from_exposure(sim_exposure1, section_id=1)
@@ -666,9 +664,9 @@ def test_image_from_exposure( provenance_base, sim_exposure1 ):
     assert not im.is_coadd
     assert not im.is_sub
     assert im._id is None  # need to commit to get IDs
-    assert im._coadd_component_zp_ids is None
-    assert im._ref_id is None
-    assert im._new_zp_id is None
+    assert isinstance( im._coadd_component_zp_ids, NoValue )
+    assert isinstance( im._ref_id, NoValue )
+    assert isinstance( im._new_zp_id, NoValue )
     assert im.coadd_alignment_target is None
     assert im.filepath is None  # need to save file to generate a filename
     assert np.array_equal(im.raw_data, sim_exposure1.data[0])
@@ -717,7 +715,6 @@ def test_image_from_exposure( provenance_base, sim_exposure1 ):
 
 
 def test_image_from_exposure_filter_array(sim_exposure_filter_array):
-    sim_exposure_filter_array.update_instrument()
     im = Image.from_exposure(sim_exposure_filter_array, section_id=0)
     filt = sim_exposure_filter_array.filter_array[0]
     assert im.filter == filt
@@ -737,9 +734,9 @@ def test_image_from_reduced_exposure( decam_reduced_origin_exposure_loaded_in_db
     assert img.exposure_id == exp.id
     assert not img.is_sub
     assert not img.is_coadd
-    assert img._coadd_component_zp_ids is None
-    assert img._ref_id is None
-    assert img._new_zp_id is None
+    assert isinstance( img._coadd_component_zp_ids, NoValue )
+    assert isinstance( img._ref_id, NoValue )
+    assert isinstance( img._new_zp_id, NoValue )
     assert img.coadd_alignment_target is None
     assert img.type == 'Sci'
     assert img.provenance_id is None    # from_exposure doesn't set provenance
@@ -893,7 +890,7 @@ def test_image_coadd( sim_image_r1, sim_image_r2, sim_image_r3, provenance_base 
         gotim = Image.get_by_id( im.id )
         assert asUUID(gotim.md5sum) == im.md5sum
         assert gotim.coadd_alignment_target == imgs[0].id
-        assert gotim._coadd_component_zp_ids is None
+        assert isinstance( gotim._coadd_component_zp_ids, NoValue )
         assert set( gotim.coadd_component_zp_ids ) == set( z.id for z in zps )
         assert set( gotim._coadd_component_zp_ids ) == set( z.id for z in zps )
         for a in attrcheck:
@@ -913,7 +910,7 @@ def test_image_coadd( sim_image_r1, sim_image_r2, sim_image_r3, provenance_base 
             rows = cursor.fetchall()
             assert set( [ asUUID(row['zp_id']) for row in rows ] ) == set( [ z.id for z in zps ] )
 
-        assert set( u.id for u in gotim.get_upstreams() ) == set( z.id for z in zps )
+        assert set( u.id for u in  gotim.get_upstreams(nofile=True) ) == set( z.id for z in zps )
 
         # Make sure that if we upsert, the components stay in place
         im._format += 1
@@ -922,7 +919,7 @@ def test_image_coadd( sim_image_r1, sim_image_r2, sim_image_r3, provenance_base 
         gotim = Image.get_by_id( im.id )
         assert asUUID(gotim.md5sum) == im.md5sum
         assert gotim.coadd_alignment_target == imgs[0].id
-        assert gotim._coadd_component_zp_ids is None
+        assert isinstance( gotim._coadd_component_zp_ids, NoValue )
         assert set( gotim.coadd_component_zp_ids ) == set( z.id for z in zps )
         assert set( gotim._coadd_component_zp_ids ) == set( z.id for z in zps )
         for a in attrcheck:
@@ -966,21 +963,20 @@ def test_image_subtraction(sim_exposure1, sim_exposure2, provenance_base, proven
     im1 = None
     im1sl = None
     im1bg = None
+    im1psf = None
     im1wcs = None
     im1zp = None
 
     im2 = None
     im2sl = None
     im2bg = None
+    im2psf = None
     im2wcs = None
     im2zp = None
 
     ref = None
     im = None
     try:
-        sim_exposure1.update_instrument()
-        sim_exposure2.update_instrument()
-
         # make sure exposures are in chronological order...
         if sim_exposure1.mjd > sim_exposure2.mjd:
             sim_exposure1, sim_exposure2 = sim_exposure2, sim_exposure1
@@ -1012,6 +1008,11 @@ def test_image_subtraction(sim_exposure1, sim_exposure2, provenance_base, proven
         im1bg = Background( sources_id=im1sl.id, format='scalar', value=0., noise=1., provenance_id=provenance_base.id,
                             filepath='foo_bg1', md5sum=uuid.uuid4() )
         im1bg.insert()
+        # I don't know why format='gaussian' didn't work, and when I tried stepping through it I got
+        #   deep into SQLA libraries.  Issue #516.
+        im1psf = PSF( sources_id=im1sl.id, _format=3, # format='gaussian',
+                      fwhm_pixels=2.7182818, filepath='foo_psf1', md5sum=uuid.uuid4() )
+        im1psf.insert()
         im1wcs = WorldCoordinates( sources_id=im1sl.id, provenance_id=provenance_base.id,
                                    filepath='foo_wcs1', md5sum=uuid.uuid4() )
         im1wcs._fill_bogus_coordinate_fields()
@@ -1025,6 +1026,9 @@ def test_image_subtraction(sim_exposure1, sim_exposure2, provenance_base, proven
         im2bg = Background( sources_id=im2sl.id, format='scalar', value=0., noise=1., provenance_id=provenance_base.id,
                             filepath='foo_bg2', md5sum=uuid.uuid4() )
         im2bg.insert()
+        im2psf = PSF( sources_id=im2sl.id, _format=3, # format='gaussian',
+                      fwhm_pixels=3.14159265359, filepath='foo_psf2', md5sum=uuid.uuid4() )
+        im2psf.insert()
         im2wcs = WorldCoordinates( sources_id=im2sl.id, provenance_id=provenance_base.id,
                                    filepath='foo_wcs2', md5sum=uuid.uuid4() )
         im2wcs._fill_bogus_coordinate_fields()
@@ -1036,13 +1040,13 @@ def test_image_subtraction(sim_exposure1, sim_exposure2, provenance_base, proven
         ref.insert()
 
         # make a subtraction image from the two
-        im = Image.from_ref_and_new(ref, im2zp)
+        im = Image.from_ref_and_new( ref=ref, new_image_zp=im2zp )
 
         assert im._id is None
         assert im.exposure_id is None
         assert im.ref_id == ref.id
         assert im.new_zp_id == im2zp.id
-        assert im.coadd_component_zp_ids == []
+        assert im.coadd_component_zp_ids is None
         assert im.mjd == im2.mjd
         assert im.exp_time == im2.exp_time
         assert im.is_sub
@@ -1064,7 +1068,7 @@ def test_image_subtraction(sim_exposure1, sim_exposure2, provenance_base, proven
     finally:
         with PsycopgConnection() as conn:
             cursor = conn.cursor()
-            for obj in [ im, ref, im2zp, im2wcs, im2bg, im2sl, im2, im1zp, im1wcs, im1bg, im1sl, im1 ]:
+            for obj in [ im, ref, im2zp, im2wcs, im2psf, im2bg, im2sl, im2, im1zp, im1wcs, im1bg, im1sl, im1 ]:
                 if obj is not None:
                     cursor.execute( f"DELETE FROM {obj.__tablename__} WHERE _id=%(id)s", { 'id': obj.id } )
             conn.commit()
@@ -1380,3 +1384,8 @@ def test_badness_basic( sim_image_uncommitted, provenance_base ):
 
     # No need to clean up, the exposure from which sim_image_uncommitted was generated
     #  will clean up all its downstreams.
+
+
+# def test_image_trim( sim_image1 ):
+#     import pdb; pdb.set_trace()
+#     pass

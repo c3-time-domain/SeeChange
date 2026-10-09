@@ -347,7 +347,6 @@ def test_data_store( decam_datastore ):
     assert isinstance( ds.measurements, list )
     assert all( isinstance( m, Measurements ) for m in ds.measurements )
     assert isinstance( ds.aligned_ref_image, Image )
-    assert isinstance( ds.aligned_new_image, Image )
     assert isinstance( ds.deepscore_set, DeepScoreSet )
     assert ds.deepscore_set.deepscores == ds.deepscores
     assert isinstance( ds.deepscores, list )

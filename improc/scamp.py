@@ -153,7 +153,7 @@ def solve_wcs_scamp( sources, catalog, crossid_radius=2.,
                         f"yielded {nmatch} matches out of {len(sources)} sources and {len(cat)} catalog objects "
                         f"(max_nmatch={max_nmatch}), with position sigmas of ({sig0:.2f}\", {sig1:.2f}\")" )
             if not ( ( nmatch > min_frac_matched * min( len(sources), len(cat), max_nmatch ) )
-                     and ( nmatch > min_matched )
+                     and ( nmatch >= min_matched )
                      and ( ( sig0 + sig1 ) / 2. <= max_arcsec_residual )
                     ):
                 infostr += ( ", which isn't good enough.\n" )

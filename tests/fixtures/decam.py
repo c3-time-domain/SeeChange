@@ -282,7 +282,7 @@ def decam_exposure_factory(download_url, data_dir, decam_cache_dir):
         exphdrinfo = decam.extract_header_info( hdr, [ 'mjd', 'exp_time', 'filter', 'project', 'target',
                                                        'ra','dec' ] )
 
-        exposure = Exposure( filepath=filename, instrument='DECam', **exphdrinfo )
+        exposure = Exposure( filepath=filename, instrument='DECam', format='fits', **exphdrinfo )
         exposure.save()  # save to archive and get an MD5 sum
         exposure.insert()
 
@@ -600,7 +600,8 @@ def decam_elais_e1_two_refs_datastore( download_url, decam_cache_dir, data_dir, 
             image.filter = image.filter_short
             image.provenance_id = prov.id
             image.filepath = f'007/{filebase}.{chip:02d}'
-            image.is_coadd = True
+            # is_coadd is false because this should NOT be set for an ExternCom* image
+            image.is_coadd = False
             image.components = [ 'image', 'weight', 'flags' ]
             image.md5sum_components = [ None, None, None ]
             for comp, path in zip( image.components, image.get_fullpath() ):

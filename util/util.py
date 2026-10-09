@@ -92,7 +92,11 @@ def listify( val, require_string=False ):
         return val
 
     if isinstance( val, collections.abc.Iterable ):
-        if isinstance( val, str ) or isinstance( val, bytes ):
+        if isinstance( val, str ):
+            return [ val ]
+        elif isinstance( val, bytes ):
+            if require_string:
+                raise TypeError( "listify wants a string, you gave it bytes.  (use decode?)" )
             return [ val ]
         else:
             if require_string and ( not all( [ isinstance( i, str ) for i in val ] ) ):
@@ -160,7 +164,7 @@ def parse_dateobs(dateobs=None, output='datetime'):
         dateobs = Time(dateobs)
     elif isinstance(dateobs, date):
         dateobs = Time( datetime.combine( dateobs, datetime.min.time() ) )
-    else:
+    elif not isinstance(dateobs, Time):
         raise ValueError(f'Cannot parse dateobs of type {type(dateobs)}')
 
     if output == 'datetime':
@@ -173,49 +177,6 @@ def parse_dateobs(dateobs=None, output='datetime'):
         return dateobs.isot
     else:
         raise ValueError(f'Unknown output type {output}')
-
-
-def parse_session(*args, **kwargs):
-    """Parse the arguments and keyword arguments to find a SmartSession or SQLAlchemy session.
-
-    If one of the kwargs is called "session" that value will be returned.
-    Otherwise, if any of the unnamed arguments is a session, the last one will be returned.
-    If neither of those are found, None will be returned.
-    Will also return the args and kwargs with any sessions removed.
-
-    Parameters
-    ----------
-    args: list
-        List of unnamed arguments
-    kwargs: dict
-        Dictionary of named arguments
-
-    Returns
-    -------
-    args: list
-        List of unnamed arguments with any sessions removed.
-    kwargs: dict
-        Dictionary of named arguments with any sessions removed.
-    session: SmartSession or SQLAlchemy session or None
-        The session found in the arguments or kwargs.
-    """
-    import sqlalchemy as sa
-    session = None
-    sessions = [arg for arg in args if isinstance(arg, sa.orm.session.Session)]
-    if len(sessions) > 0:
-        session = sessions[-1]
-    args = [arg for arg in args if not isinstance(arg, sa.orm.session.Session)]
-
-    sesskeys = []
-    for key in kwargs.keys():
-        if key in ['session']:
-            if not isinstance(kwargs[key], sa.orm.session.Session):
-                raise ValueError(f'Session must be a sqlalchemy.orm.session.Session, got {type(kwargs[key])}')
-            sesskeys.append(key)
-    for key in sesskeys:
-        session = kwargs.pop(key)
-
-    return args, kwargs, session
 
 
 def parse_bool(text):

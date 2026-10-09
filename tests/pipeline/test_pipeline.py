@@ -3,32 +3,26 @@ import copy
 import pytest
 import shutil
 import datetime
+import textwrap
 
 import numpy as np
+import psycopg.sql as sql
 
 import sqlalchemy as sa
-import sqlalchemy.orm as orm
 
-from models.base import SmartSession, FileOnDiskMixin, PsycopgConnection
+from models.base import SmartSession, PGDB, FileOnDiskMixin, PsycopgConnection
 from models.provenance import Provenance, ProvenanceTag
 from models.exposure import Exposure
 from models.image import Image
-from models.reference import image_subtraction_components
-from models.calibratorfile import CalibratorFile
-from models.source_list import SourceList
-from models.psf import PSF
-from models.world_coordinates import WorldCoordinates
-from models.zero_point import ZeroPoint
-from models.cutouts import Cutouts
-from models.measurements import Measurements, MeasurementSet
-from models.deepscore import DeepScore, DeepScoreSet
+from models.measurements import MeasurementSet
+from models.deepscore import DeepScoreSet
 from models.report import Report
 
 from pipeline.data_store import DataStore
 from pipeline.top_level import Pipeline
 
 from util.logger import SCLogger
-from util.util import env_as_bool
+from util.util import env_as_bool, asUUID
 
 from tests.conftest import SKIP_WARNING_TESTS
 
@@ -40,119 +34,101 @@ def check_datastore_and_database_have_everything(exp_id, sec_id, ref_id, ds):
 
     Parameters
     ----------
-    exp_id: int
+    exp_id: UUID
         The Exposure ID.
 
     sec_id: str or int
         The section_id of the image from the exposure.
 
-    ref_id: int
+    ref_id: UUID
         The Reference ID.
-
-    session: sqlalchemy.orm.session.Session
-        The database session
 
     ds: datastore.DataStore
         The datastore object
 
     """
 
-    with SmartSession() as session:
-        # find the image
-        im = session.scalars(
-            sa.select(Image).where(
-                Image.exposure_id == exp_id,
-                Image.section_id == str(sec_id),
-                Image.provenance_id == ds.image.provenance_id,
+    with PGDB( dictcursor=True ) as pgdb:
+        # check the image in the database
+        rows = pgdb.execute( sql.SQL( textwrap.dedent(
+            """\
+            SELECT _id FROM images
+            WHERE exposure_id={expid}
+              AND section_id={secid}
+              AND provenance_id={provid}
+            """
+        ) ).format( expid=exp_id, secid=str(sec_id), provid=ds.image.provenance_id ) )
+        assert len(rows) == 1
+        assert ds.image.id == rows[0]['_id']
+
+        # Check lots of other stuff in the database
+
+        # ( prob, table, match_col, match_val )
+        matches = [ ( 'sources', 'source_lists', 'image_id', ds.image.id ),
+                    ( 'wcs', 'world_coordinates', 'sources_id', ds.sources.id ),
+                    ( 'zp', 'zero_points', 'wcs_id', ds.wcs.id ),
+                    ( 'detections', 'source_lists', 'image_id', ds.sub_image.id ),
+                    ( 'cutouts', 'cutouts', 'sources_id', ds.detections.id ),
+                    ( 'measurement_set', 'measurement_sets', 'cutouts_id', ds.cutouts.id ),
+                    ( 'deepscore_set', 'deepscore_sets', 'measurementset_id', ds.measurement_set.id )
+                   ]
+        for prop, tab, matchcol, matchval in matches:
+            rows = pgdb.execute(
+                sql.SQL( "SELECT _id FROM {table} WHERE {col}={val} AND provenance_id={provid}" )
+                .format( table=sql.Identifier(tab), col=sql.Identifier(matchcol),
+                         val=matchval, provid=getattr(ds, prop).provenance_id )
             )
-        ).first()
-        assert im is not None
-        assert ds.image.id == im.id
+            assert len(rows) == 1
+            assert rows[0]['_id'] == getattr( ds, prop ).id
 
-        # find the extracted sources
-        sources = session.scalars(
-            sa.select(SourceList).where(
-                SourceList.image_id == im.id,
-                SourceList.provenance_id == ds.sources.provenance_id,
-            )
-        ).first()
-        assert sources is not None
-        assert ds.sources.id == sources.id
+        # Things that don't follow the pattern...
 
-        # find the PSF
-        psf = session.scalars( sa.select(PSF).where(PSF.sources_id == sources.id) ).first()
-        assert psf is not None
-        assert ds.psf.id == psf.id
+        # psf and bg
+        rows = pgdb.execute( sql.SQL( "SELECT _id FROM psfs WHERE sources_id={sourcesid}" )
+                             .format( sourcesid=ds.sources.id ) )
+        assert len(rows) == 1
+        assert ds.psf.id == rows[0]['_id']
+        rows = pgdb.execute( sql.SQL( "SELECT _id FROM backgrounds WHERE sources_id={sourcesid}" )
+                             .format( sourcesid=ds.sources.id ) )
+        assert len(rows) == 1
+        assert ds.bg.id == rows[0]['_id']
 
-        # find the WorldCoordinates object
-        wcs = session.scalars( sa.select(WorldCoordinates).where(WorldCoordinates.sources_id == sources.id) ).first()
-        assert wcs is not None
-        assert ds.wcs.id == wcs.id
+        # sub_image
+        rows = pgdb.execute( sql.SQL( textwrap.dedent(
+            """\
+            SELECT s._id
+            FROM images s
+            INNER JOIN image_subtraction_components isc ON isc.image_id=s._id
+            WHERE isc.ref_id={refid} AND isc.new_zp_id={zpid}
+            """
+        ) ).format( refid=ref_id, zpid=ds.zp.id ) )
+        assert len(rows) == 1
+        assert ds.sub_image.id == rows[0]['_id']
 
-        # find the ZeroPoint object
-        zp = session.scalars( sa.select(ZeroPoint).where(ZeroPoint.wcs_id == wcs.id) ).first()
-        assert zp is not None
-        assert ds.zp.id == zp.id
-
-        # find the subtraction image
-        sub = ( session.query( Image )
-                .join( image_subtraction_components,
-                       sa.and_( image_subtraction_components.c.image_id==Image._id,
-                                image_subtraction_components.c.ref_id==ref_id ) )
-                .filter( image_subtraction_components.c.new_zp_id==zp._id ) ).first()
-        assert sub is not None
-        assert ds.sub_image.id == sub.id
-
-        # find the detections SourceList
-        det = session.scalars(
-            sa.select(SourceList).where(
-                SourceList.image_id == sub.id,
-                SourceList.provenance_id == ds.detections.provenance_id,
-            )
-        ).first()
-
-        assert det is not None
-        assert ds.detections.id == det.id
-
-        # find the Cutouts
-        cutouts = session.scalars(
-            sa.select(Cutouts).where(
-                Cutouts.sources_id == det.id,
-                Cutouts.provenance_id == ds.cutouts.provenance_id,
-            )
-        ).first()
-        assert ds.cutouts.id == cutouts.id
-
-        # Measurements
-        measurement_set = session.scalars( sa.select( MeasurementSet )
-                                           .where( MeasurementSet.cutouts_id == cutouts.id,
-                                                   MeasurementSet.provenance_id == ds.measurement_set.provenance_id )
-                                          ).first()
-        assert ds.measurement_set.id == measurement_set.id
-
-        measurements = session.scalars( sa.select( Measurements )
-                                        .where( Measurements.measurementset_id == measurement_set.id )
-                                        .order_by( Measurements.index_in_sources )
-                                       ).all()
-        assert len(measurements) > 0
-        assert len(ds.measurements) == len(measurements)
-        assert all( ds.measurements[i].id == measurements[i].id for i in range(len(measurements)) )
+        # measurements
+        rows = pgdb.execute( sql.SQL( textwrap.dedent(
+            """\
+            SELECT _id FROM measurements
+            WHERE measurementset_id={setid}
+            ORDER BY index_in_sources
+            """
+        ) ).format( setid=ds.measurement_set.id ) )
+        assert len(rows) > 0
+        assert len(rows) == len(ds.measurements)
+        assert all( rows[i]['_id'] == ds.measurements[i].id for i in range( len(rows) ) )
 
         # deepscores
-        deepscore_set = session.scalars( sa.select( DeepScoreSet )
-                                         .where( DeepScoreSet.measurementset_id == measurement_set.id,
-                                                 DeepScoreSet.provenance_id == ds.deepscore_set.provenance_id )
-                                        ).first()
-        assert ds.deepscore_set.id == deepscore_set.id
-
-        deepscores = session.scalars( sa.select( DeepScore )
-                                      .where( DeepScore.deepscoreset_id == deepscore_set.id )
-                                      .order_by( DeepScore.index_in_sources )
-                                     ).all()
-        assert len(deepscores) == len(measurements)
-        assert all( d.index_in_sources == m.index_in_sources for d, m in zip( deepscores, measurements ) )
-        assert len(deepscores) == len(ds.deepscores)
-        assert all( d.id == dsd.id for d, dsd in zip( deepscores, ds.deepscores ) )
+        rows = pgdb.execute( sql.SQL( textwrap.dedent(
+            """\
+            SELECT _id FROM deepscores
+            WHERE deepscoreset_id={setid}
+            ORDER BY index_in_sources
+            """
+        ) ).format( setid=ds.deepscore_set.id ) )
+        assert len(rows) > 0
+        assert len(rows) == len(ds.measurements)
+        assert len(rows) == len(ds.deepscores)
+        assert all( r['_id'] == d.id for r, d in zip( rows, ds.deepscores ) )
 
 
 def test_parameters( test_config ):
@@ -218,32 +194,29 @@ def test_running_without_reference(decam_exposure, decam_default_calibrators, pi
         #  load refererences.  (Though I don't think there are any.)
         _ = p.run(decam_exposure, 'N1')
 
-    with SmartSession() as session:
-        # The N1 decam calibrator files will have been automatically added
-        # in the pipeline run above; need to clean them up.  However,
-        # *don't* remove the linearity calibrator file, because that will
-        # have been added in session fixtures used by other tests.  (Tests
-        # and automatic cleanup become very fraught when you have automatic
-        # loading of stuff....)
-
-        cfs = ( session.query( CalibratorFile )
-                .filter( CalibratorFile.instrument == 'DECam' )
-                .filter( CalibratorFile.sensor_section == 'N1' )
-                .filter( CalibratorFile.image_id is not None ) )
-        imdel = [ c.image_id for c in cfs ]
-        imgtodel = session.query( Image ).filter( Image._id.in_( imdel ) )
+    with PGDB( dictcursor=True ) as pgdb:
+        rows = pgdb.execute( textwrap.dedent(
+            """\
+            SELECT i.*
+            FROM calibrator_files c
+            INNER JOIN images i ON i._id=c.image_id
+            WHERE c.instrument='DECam'
+              AND c.sensor_section='N1'
+              AND c.image_id IS NOT NULL
+            """
+        ) )
+        imgtodel = [ Image.create( **row ) for row in rows ]
         for i in imgtodel:
             i.delete_from_disk_and_database()
-
-        session.commit()
 
 
 def check_full_run_results( ds, exposure, sec_id, ref, expected ):
     # Make sure that the provenances are all in the database
-    with SmartSession() as session:
+    with PGDB() as pgdb:
         for prov in ds.prov_tree.values():
-            provs = session.query( Provenance ).filter( Provenance._id==prov.id ).all()
-            assert len(provs) == 1
+            rows, _cols = pgdb.execute( sql.SQL( "SELECT _id FROM provenances WHERE _id={provid}" )
+                                        .format( provid=prov.id ) )
+            assert len(rows) == 1
 
     # Check that all the data products are in the database
     check_datastore_and_database_have_everything( exposure.id, sec_id, ref.id, ds )
@@ -255,24 +228,30 @@ def check_full_run_results( ds, exposure, sec_id, ref, expected ):
     # (This is perhaps gratuitous, since the measurements and deescores
     #   should aready be in DataStore ds, but, well, I guess this is
     #   also checking it all got saved right to the database.)
-    detections = orm.aliased( SourceList )
-    subim = orm.aliased( Image )
-    with SmartSession() as session:
-        res = ( session.query( MeasurementSet, DeepScoreSet )
-                .join( Cutouts, MeasurementSet.cutouts_id==Cutouts._id )
-                .join( detections, Cutouts.sources_id==detections._id )
-                .join( subim, detections.image_id==subim._id )
-                .join( image_subtraction_components, subim._id==image_subtraction_components.c.image_id )
-                .join( ZeroPoint, image_subtraction_components.c.new_zp_id==ZeroPoint._id )
-                .join( WorldCoordinates, ZeroPoint.wcs_id==WorldCoordinates._id )
-                .join( SourceList, WorldCoordinates.sources_id==SourceList._id )
-                .join( Image, SourceList.image_id==Image._id )
-                .filter( DeepScoreSet.measurementset_id==MeasurementSet._id )
-                .filter( DeepScoreSet.provenance_id==ds.prov_tree['scoring'].id )
-                .filter( Image.exposure_id==exposure.id )
-               ).all()
-        assert len(res) == 1
-        meas, deep = res[0]
+    with PGDB( dictcursor=True ) as pgdb:
+        rows = pgdb.execute( sql.SQL( textwrap.dedent(
+            """\
+            SELECT m.*, to_jsonb(d) AS deepscore_set
+            FROM deepscore_sets d
+            INNER JOIN measurement_sets m ON d.measurementset_id=m._id
+            INNER JOIN cutouts c ON m.cutouts_id=c._id
+            INNER JOIN source_lists dets ON c.sources_id=dets._id
+            INNER JOIN images sub ON dets.image_id=sub._id
+            INNER JOIN image_subtraction_components isc ON isc.image_id=sub._id
+            INNER JOIN zero_points z ON isc.new_zp_id=z._id
+            INNER JOIN world_coordinates w ON z.wcs_id=w._id
+            INNER JOIN source_lists s ON w.sources_id=s._id
+            INNER JOIN images i ON s.image_id=i._id
+            WHERE d.provenance_id={detprov}
+              AND i.exposure_id={expid}
+            """
+        ) ).format( detprov=ds.prov_tree['scoring'].id, expid=exposure.id ) )
+        assert len(rows) == 1
+        deep = DeepScoreSet.create( **(rows[0]['deepscore_set']))
+        # The JSON games will have turned the UUID into a string
+        deep._id = asUUID( deep._id )
+        del rows[0]['deepscore_set']
+        meas = MeasurementSet.create( **(rows[0]) )
 
     # ---> REGRESSION TEST : look at some of the results to make
     #   sure that things behaved as expected.  If not, then either
@@ -326,26 +305,24 @@ def check_full_run_results( ds, exposure, sec_id, ref, expected ):
 def test_full_run_zogy( decam_exposure, decam_reference, decam_default_calibrators, user ):
     # The source at 1619.22, 1881.40 is a real SN
     expected = {
-        'x':      np.array( [ 1984.90,  785.16, 1409.14, 1452.95, 1917.67, 1439.39, 1451.49, 1619.22,
-                              1441.19, 1928.02, 1358.37,  457.96, 1518.36 ] ),
-        'y':      np.array( [  221.94,  468.16,  757.69,  807.57, 1394.23, 1463.61, 1627.44, 1881.40,
-                               2048.38, 2093.13, 3491.88, 4008.20, 4043.33 ] ),
-        'gfit_x':           [ 1985.56,  785.19, 1408.73, 1451.45, 1917.77, 1438.04, 1450.82, 1619.22,
-                              1441.06, 1927.90, 1358.17,  457.83, 1516.75 ],
-        'gfit_y':           [  221.53,  468.16,  757.71,  809.32, 1394.10, 1464.79, 1628.07, 1881.28,
-                               2048.19, 2092.87, 3492.08, 4006.62, 4041.56 ],
-        'major_width': [  5.07,  2.54,  6.71,  8.60,  2.21,  7.88,  6.80,  4.05,  3.92,  6.18,  9.74,
-                          7.73,  7.73 ],
-        'minor_width': [  2.15,  2.04,  4.53,  6.99,  1.85,  7.42,  6.15,  3.18,  2.35,  2.96,  4.25,
-                          6.01,  7.50 ],
+        'x':      np.array( [ 1984.90,  785.16, 1409.14, 1452.95, 1917.67, 1439.39, 1451.49, 1619.22, 1441.19,
+                              1928.02, 1358.37,  457.96, 1518.36 ] ),
+        'y':      np.array( [  221.94,  468.16,  757.69,  807.57, 1394.23, 1463.61, 1627.44, 1881.40, 2048.38,
+                               2093.13, 3491.88, 4008.20, 4043.33 ] ),
+        'gfit_x':           [ 1985.56,  785.19, 1408.73, 1451.45, 1917.77, 1438.04, 1450.82, 1619.22, 1441.06,
+                              1927.90, 1358.17,  457.86, 1516.75 ],
+        'gfit_y':           [  221.53,  468.16,  757.71,  809.32, 1394.10, 1464.79, 1628.07, 1881.28, 2048.19,
+                               2092.87, 3492.08, 4008.47, 4041.56 ],
+        'major_width': [  5.07,  2.54,  6.71,  8.60,  2.21,  7.88,  6.79,  4.05,  3.92,  6.19,  9.74,  4.99,  7.73 ],
+        'minor_width': [  2.15,  2.04,  4.53,  6.99,  1.85,  7.42,  6.15,  3.18,  2.35,  2.96,  4.25,  2.48,  7.50 ],
         'neg_frac':      [ 0.24, 0.06, 0.23, 0.07, 0.25, 0.02, 0.11, 0.00, 0.23, 0.00, 0.00, 0.05, 0.02 ],
         'neg_flux_frac': [ 0.29, 0.01, 0.10, 0.09, 0.19, 0.02, 0.12, -0.00, 0.24, 0.00, -0.00, 0.07, 0.05 ],
         'psf_flux':      [   2336.,   8647.,  94666.,  10838.,    518.,   3444.,  11195.,   2299.,   1335.,
-                             483.,    821.,   3003.,  21014. ],
+                              483.,    821.,   3003.,  21014. ],
         'psf_flux_err':  [    130.,    110.,    467.,    185.,     89.,    133.,    178.,     97.,    111.,
-                              92.,     87.,    123.,    220. ],
+                               92.,     87.,    123.,    220. ],
         'aper_flux':     [   1410.,   5861.,  71652.,  11512.,    346.,   3872.,   9973.,   1900.,    761.,
-                             431.,   1050.,   2925.,  27991. ],
+                              431.,   1050.,   2925.,  27991. ],
         'aper_flux_err': [    145.,    106.,    554.,    206.,     99.,    145.,    188.,    105.,    124.,
                               104.,    100.,    149.,    265. ],
         'rb': [ 0.624, 0.880, 0.439, 0.388, 0.493, 0.561, 0.457, 0.791, 0.626, 0.519, 0.488, 0.608, 0.452 ]
@@ -419,56 +396,52 @@ def test_full_run_hotpants( decam_exposure, decam_reference, decam_default_calib
                                949.14,  903.47, 1752.72,  998.42,  983.28,  291.46, 1984.85, 1563.97, 1619.21,
                                397.92, 1581.49, 1451.79, 1143.22, 1741.33, 1439.00, 1437.29,  616.39, 1185.98,
                                698.96,  246.24, 1451.11, 1409.10,  177.78, 1435.24,  785.16, 1405.95, 1610.92,
-                              1984.46, 1576.61, 1573.30,  786.63 ] ),
+                               1984.46, 1576.61, 1573.30,  786.63 ] ),
         'y':      np.array( [ 4039.62, 4008.88, 4008.75, 3527.51, 3450.32, 3409.28, 3402.39, 3280.49, 2929.00,
                               2847.72, 2747.91, 2620.64, 2278.11, 2273.60, 2228.04, 2026.02, 2006.98, 1881.41,
                               1732.86, 1665.81, 1627.63, 1571.47, 1485.58, 1464.84, 1462.08, 1310.13, 1085.24,
                                948.00,  933.89,  812.40,  758.22,  704.00,  477.55,  468.16,  442.23,  374.36,
                                220.79,  181.67,  180.33,  168.42 ] ),
-        'gfit_x':           [ 1517.14,  457.84,  457.84,  593.58, 1192.27, 1265.73, 1108.94,  192.78, 1645.90,
-                               949.17,  903.51, 1752.83,  998.43,  983.31,  291.49, 1984.95, 1564.21, 1619.22,
-                               397.78, 1581.51, 1450.96, 1143.46, 1741.41, 1438.29, 1438.29,  616.41, 1186.01,
-                               698.76,  246.33, 1451.52, 1408.76,  177.89, 1435.30,  785.21, 1405.99, 1611.00,
-                              1984.66, 1576.84, 1575.26,  786.69 ],
-        'gfit_y':           [ 4041.87, 4008.77, 4008.77, 3527.33, 3450.46, 3409.50, 3402.59, 3280.40, 2929.19,
-                              2847.63, 2747.88, 2620.62, 2278.16, 2273.17, 2228.10, 2025.94, 2006.84, 1881.32,
-                              1732.93, 1665.88, 1628.44, 1571.65, 1485.61, 1465.15, 1465.15, 1310.15, 1085.21,
-                               947.97,  933.92,  809.42,  758.05,  703.85,  477.70,  468.15,  442.27,  374.44,
+        'gfit_x':           [ 1517.14,  457.84,  457.84,  593.42, 1192.27, 1265.73, 1108.94,  192.78, 1645.87,
+                               949.17,  903.51, 1752.83,  998.43,  983.31,  291.49, 1984.95, 1564.23, 1619.22,
+                               398.00, 1581.51, 1450.96, 1143.42, 1741.41, 1438.29, 1438.29,  616.41, 1186.01,
+                               698.82,  246.33, 1451.52, 1408.76,  177.89, 1435.30,  785.21, 1405.99, 1610.86,
+                               1984.66, 1576.84, 1575.26,  786.68 ],
+        'gfit_y':           [ 4041.87, 4008.77, 4008.77, 3527.21, 3450.46, 3409.50, 3402.59, 3280.40, 2929.27,
+                              2847.63, 2747.88, 2620.62, 2278.16, 2273.17, 2228.10, 2025.94, 2006.85, 1881.32,
+                              1733.23, 1665.88, 1628.44, 1571.61, 1485.61, 1465.15, 1465.15, 1310.15, 1085.21,
+                               948.13,  933.92,  809.42,  758.05,  703.85,  477.70,  468.15,  442.27,  374.45,
                                220.54,  181.84,  180.84,  168.45 ],
-        'major_width': [  7.95,  5.87,  5.87,  1.50,  1.62,  4.68,  2.17,  1.85,  0.69,  3.70,  2.19,  2.48,
-                          3.53,  2.52,  1.20,  4.86,  0.59,  3.94,  0.45,  3.01,  7.47,  1.96,  2.07,  7.96,
-                          7.96,  2.18,  2.34,  0.68,  2.08,  8.44,  7.15,  0.77,  1.40,  2.50,  1.59,  0.62,
-                          3.80,  2.74,  6.30,  0.99 ],
-        'minor_width': [  6.74,  2.02,  2.02,  0.57,  0.82,  1.81,  0.95,  0.74,  0.58,  1.41,  1.37,  1.56,
-                          1.21,  1.04,  1.06,  3.19,  0.38,  3.19,  0.29,  1.51,  6.40,  0.69,  1.62,  7.52,
-                          7.52,  1.76,  1.67,  0.38,  1.53,  6.90,  5.13,  0.66,  0.96,  1.96,  1.55,  0.39,
-                          1.77,  1.74,  2.94,  0.61 ],
+        'major_width': [  7.95,  5.87,  5.87,  1.56,  1.62,  4.68,  2.17,  1.85,  0.90,  3.70,  2.19,  2.48,
+                          3.53,  2.51,  1.20,  4.86,  0.57,  3.94,  0.43,  3.01,  7.47,  1.84,  2.07,  7.96,
+                          7.96,  2.18,  2.34,  0.64,  2.08,  8.44,  7.15,  0.77,  1.40,  2.50,  1.59,  0.88,
+                          3.80,  2.74,  6.29,  0.99 ],
+        'minor_width': [  6.74,  2.02,  2.02,  0.62,  0.82,  1.81,  0.95,  0.74,  0.43,  1.41,  1.37,  1.56,
+                          1.21,  1.04,  1.06,  3.19,  0.39,  3.19,  0.31,  1.51,  6.40,  0.68,  1.62,  7.52,
+                          7.52,  1.76,  1.67,  0.54,  1.53,  6.90,  5.13,  0.66,  0.96,  1.96,  1.55,  0.51,
+                          1.77,  1.74,  2.94,  0.62 ],
         'neg_frac':      [ 0.01, 0.14, 0.14, 0.00, 0.00, 0.00, 0.10, 0.00, 0.00, 0.00, 0.03, 0.00, 0.00, 0.00,
                            0.14, 0.25, 0.00, 0.06, 0.00, 0.00, 0.07, 0.00, 0.00, 0.05, 0.05, 0.00, 0.00, 0.00,
                            0.00, 0.07, 0.17, 0.00, 0.00, 0.00, 0.00, 0.00, 0.24, 0.00, 0.01, 0.00 ],
         'neg_flux_frac': [ 0.00, 0.18, 0.18, 0.00, 0.00, 0.00, 0.01, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00, 0.00,
                            0.02, 0.27, 0.00, 0.03, 0.00, 0.00, 0.06, 0.00, 0.00, 0.04, 0.04, 0.00, 0.00, 0.00,
                            0.00, 0.07, 0.07, 0.00, 0.00, 0.00, 0.00, 0.00, 0.19, 0.00, 0.00, 0.00 ],
-        'psf_flux':      [  19090.,   2340.,   2969.,   4050.,   6993.,  12925.,   4356.,   4815.,    620.,
-                             7405.,   8262.,  13013.,   6467.,   5645.,   2859.,   1390.,   1468.,   2347.,
-                              578.,   8752.,  10268.,   6364.,   7924.,   3624.,   2223.,   7568.,   8401.,
-                             1203.,   9584.,   8622., 103492.,    504.,   8016.,   8550.,   4852.,   2299.,
-                             1757.,  16487.,  14246.,   3416. ],
-        'psf_flux_err':  [    190.,    109.,    110.,     96.,    105.,    113.,    101.,    100.,     90.,
-                              104.,    106.,    116.,    102.,     99.,     97.,    107.,     91.,     96.,
-                               90.,    108.,    168.,    104.,    107.,    145.,    109.,    107.,    108.,
-                               92.,    110.,    158.,    454.,     92.,    109.,    109.,    102.,     97.,
-                              107.,    121.,    116.,    102. ],
-        'aper_flux':     [  16938.,   2340.,   1478.,   4678.,   5765.,  13466.,   4356.,   4159.,    620.,
-                             5630.,   6590.,  11471.,   5367.,   5365.,   1844.,   1236.,   1468.,   1909.,
-                              578.,   6765.,   9402.,   5908.,   5486.,   3507.,   2321.,   4958.,   6365.,
-                             1203.,   7272.,   7841.,  84008.,    504.,   9071.,   5709.,   3052.,   2299.,
-                             1599.,  15938.,  14476.,   3416. ],
-        'aper_flux_err': [    214.,    133.,    144.,    104.,    105.,    114.,    104.,    104.,     99.,
-                              105.,    106.,    113.,    105.,    105.,    103.,    119.,    100.,    104.,
-                               99.,    107.,    171.,    106.,    105.,    138.,    123.,    105.,    107.,
-                              100.,    108.,    161.,    439.,    100.,    110.,    106.,    102.,    101.,
-                              123.,    117.,    115.,    103. ],
+        'psf_flux':      [  19090.,   2340.,   2969.,   4050.,   6993.,  12925.,   4356.,   4815.,    620.,   7405.,
+                             8262.,  13013.,   6467.,   5645.,   2859.,   1390.,   1468.,   2347.,    578.,   8752.,
+                            10268.,   6364.,   7924.,   3624.,   2223.,   7568.,   8401.,   1203.,   9584.,   8622.,
+                           103492.,    504.,   8016.,   8550.,   4852.,   2299.,   1757.,  16487.,  14246.,   3416. ],
+        'psf_flux_err':  [    190.,    109.,    110.,     96.,    105.,    113.,    101.,    100.,     90.,    104.,
+                              106.,    116.,    102.,     99.,     97.,    107.,     91.,     96.,     90.,    108.,
+                              168.,    104.,    107.,    145.,    109.,    107.,    108.,     92.,    110.,    158.,
+                              454.,     92.,    109.,    109.,    102.,     97.,    107.,    121.,    116.,    102. ],
+        'aper_flux':     [  16938.,   2340.,   1478.,   4678.,   5765.,  13466.,   4356.,   4159.,    620.,   5630.,
+                             6590.,  11471.,   5367.,   5365.,   1844.,   1236.,   1468.,   1909.,    578.,   6765.,
+                             9402.,   5908.,   5486.,   3507.,   2321.,   4958.,   6365.,   1203.,   7272.,   7841.,
+                             84008.,    504.,   9071.,   5709.,   3052.,   2299.,   1599.,  15938.,  14476.,   3416. ],
+        'aper_flux_err': [    214.,    133.,    144.,    104.,    105.,    114.,    104.,    104.,     99.,    105.,
+                              106.,    113.,    105.,    105.,    103.,    119.,    100.,    104.,     99.,    107.,
+                              171.,    106.,    105.,    138.,    123.,    105.,    107.,    100.,    108.,    161.,
+                              439.,    100.,    110.,    106.,    102.,    101.,    123.,    117.,    115.,    103. ],
         'rb': [ 0.452, 0.654, 0.426, 0.628, 0.880, 0.788, 0.904, 0.899, 0.716, 0.778, 0.891, 0.852, 0.601, 0.613,
                 0.791, 0.819, 0.741, 0.779, 0.766, 0.777, 0.489, 0.838, 0.921, 0.600, 0.495, 0.847, 0.841, 0.795,
                 0.809, 0.695, 0.528, 0.761, 0.812, 0.881, 0.891, 0.815, 0.548, 0.814, 0.325, 0.894 ]
@@ -637,21 +610,17 @@ def test_bitflag_propagation(decam_exposure, decam_reference, decam_default_cali
         # test part 2: Add a second bitflag partway through and check it propagates to downstreams
 
         # delete downstreams of ds.sources
-        # Gotta do the sources siblings individually,
-        #   but doing those will catch everything else
-        #   with remove_downstreams defaulting to True
-        ds.bg.delete_from_disk_and_database()
-        ds.bg = None
+        # The only immediate downstream is wcs, and both delete_from_disk_and_database and wcs.setter will
+        #   recursively clear out the downstreams
         ds.wcs.delete_from_disk_and_database()
         ds.wcs = None
-        ds.zp.delete_from_disk_and_database()
-        ds.zp = None
 
-        ds.sub_image = None
-        ds.detections = None
-        ds.cutouts = None
-        ds.measurement_set = None
-        ds.deepscore_set = None
+        # (Make sure other downstreams got cleared... i.e., make sure I didn't lie in the last comment)
+        # (If I was really good, I'd also make sure they weren't in the database or on disk.)
+        for prop in ( '_zp', '_sub_image', '_detections', '_cutouts', '_measurement_set',
+                      '_deepscore_set', '_aligned_ref_image', '_aligned_ref_sources',
+                      '_aligned_ref_bg', '_aligned_ref_psf' ):
+            assert getattr( ds, prop ) is None
 
         ds.sources._set_bitflag( 2 ** 17 )  # bitflag 2**17 is 'many sources'
         desired_bitflag = 2 ** 1 + 2 ** 17  # bitflag for 'banding' and 'many sources'
@@ -757,26 +726,26 @@ def test_get_upstreams_and_downstreams(decam_exposure, decam_reference, decam_de
         ds = p.run(exposure, sec_id)
 
         ds.save_and_commit()
-        with SmartSession() as session:
+        with PGDB() as pgdb:
             # test get_upstreams()
             assert ds.exposure.get_upstreams() == []
-            assert [upstream.id for upstream in ds.image.get_upstreams(session=session)] == [ds.exposure.id]
-            assert [upstream.id for upstream in ds.sources.get_upstreams(session=session)] == [ds.image.id]
-            assert [upstream.id for upstream in ds.wcs.get_upstreams(session=session)] == [ds.sources.id]
-            assert [upstream.id for upstream in ds.psf.get_upstreams(session=session)] == [ds.sources.id]
-            assert [upstream.id for upstream in ds.zp.get_upstreams(session=session)] == [ds.wcs.id]
-            assert ( set([ upstream.id for upstream in ds.sub_image.get_upstreams( session=session ) ])
+            assert [upstream.id for upstream in ds.image.get_upstreams(pgdb=pgdb)] == [ds.exposure.id]
+            assert [upstream.id for upstream in ds.sources.get_upstreams(pgdb=pgdb)] == [ds.image.id]
+            assert [upstream.id for upstream in ds.wcs.get_upstreams(pgdb=pgdb)] == [ds.sources.id]
+            assert [upstream.id for upstream in ds.psf.get_upstreams(pgdb=pgdb)] == [ds.sources.id]
+            assert [upstream.id for upstream in ds.zp.get_upstreams(pgdb=pgdb)] == [ds.wcs.id]
+            assert ( set([ upstream.id for upstream in ds.sub_image.get_upstreams( pgdb=pgdb ) ])
                      == { ds.reference.id, ds.zp.id } )
-            assert [upstream.id for upstream in ds.detections.get_upstreams(session=session)] == [ds.sub_image.id]
-            assert [upstream.id for upstream in ds.cutouts.get_upstreams(session=session)] == [ds.detections.id]
-            assert [upstream.id for upstream in ds.measurement_set.get_upstreams(session=session)] == [ds.cutouts.id]
+            assert [upstream.id for upstream in ds.detections.get_upstreams(pgdb=pgdb)] == [ds.sub_image.id]
+            assert [upstream.id for upstream in ds.cutouts.get_upstreams(pgdb=pgdb)] == [ds.detections.id]
+            assert [upstream.id for upstream in ds.measurement_set.get_upstreams(pgdb=pgdb)] == [ds.cutouts.id]
             for measurement in ds.measurements:
-                assert ( [upstream.id for upstream in measurement.get_upstreams(session=session)]
+                assert ( [upstream.id for upstream in measurement.get_upstreams(pgdb=pgdb)]
                          == [ds.measurement_set.id] )
-            assert ( [upstream.id for upstream in ds.deepscore_set.get_upstreams(session=session)]
+            assert ( [upstream.id for upstream in ds.deepscore_set.get_upstreams(pgdb=pgdb)]
                      == [ds.measurement_set.id] )
             for deepscore in ds.deepscores:
-                assert ( [upstream.id for upstream in deepscore.get_upstreams(session=session)]
+                assert ( [upstream.id for upstream in deepscore.get_upstreams(pgdb=pgdb)]
                          == [ds.deepscore_set.id] )
 
             # test get_downstreams
@@ -789,46 +758,51 @@ def test_get_upstreams_and_downstreams(decam_exposure, decam_reference, decam_de
             #   create two downstreams for the exposure.  However, it
             #   probably has to do with when things get committed to the
             #   actual database and with the whole mess around
-            #   SQLAlchemy sessions.  Making decam_exposure a
-            #   function-scope fixture (rather than the session-scope
+            #   SQLAlchemy pgdbs.  Making decam_exposure a
+            #   function-scope fixture (rather than the pgdb-scope
             #   fixture it is right now) would almost certainly make
             #   this test work the same in whether run by itself or run
             #   in context, but for now I've just commented out the check
             #   on the length of the exposure downstreams.
-            exp_downstreams = [ downstream.id for downstream in ds.exposure.get_downstreams(session=session) ]
+            exp_downstreams = [ downstream.id for downstream in ds.exposure.get_downstreams(pgdb=pgdb) ]
             # assert len(exp_downstreams) == 2
             assert ds.image.id in exp_downstreams
 
-            assert [downstream.id for downstream in ds.image.get_downstreams(session=session)] == [ds.sources.id]
-            assert ( set( [downstream.id for downstream in ds.sources.get_downstreams(session=session)] )
+            assert [downstream.id for downstream in ds.image.get_downstreams(pgdb=pgdb)] == [ds.sources.id]
+            assert ( set( downstream.id for downstream in ds.sources.get_downstreams(pgdb=pgdb) )
                      == { ds.wcs.id, ds.bg.id, ds.psf.id } )
-            assert [downstream.id for downstream in ds.psf.get_downstreams(session=session)] == []
-            assert [downstream.id for downstream in ds.wcs.get_downstreams(session=session)] == [ds.zp.id]
-            assert [downstream.id for downstream in ds.zp.get_downstreams(session=session)] == [ds.sub_image.id]
-            assert [downstream.id for downstream in ds.reference.get_downstreams(session=session)] == [ds.sub_image.id]
-            assert [downstream.id for downstream in ds.sub_image.get_downstreams(session=session)] == [ds.detections.id]
-            assert [downstream.id for downstream in ds.detections.get_downstreams(session=session)] == [ds.cutouts.id]
-            assert ( [downstream.id for downstream in ds.cutouts.get_downstreams(session=session)] ==
+            assert [downstream.id for downstream in ds.psf.get_downstreams(pgdb=pgdb)] == []
+            assert ( set( downstream.id for downstream in ds.wcs.get_downstreams(pgdb=pgdb) )
+                     == { ds.zp.id, ds.aligned_ref_image.id } )
+            assert [downstream.id for downstream in ds.zp.get_downstreams(pgdb=pgdb)] == [ds.sub_image.id]
+            assert ( [ downstream.id for downstream in ds.aligned_ref_image.get_downstreams(pgdb=pgdb) ]
+                     == [ ds.aligned_ref_sources.id ] )
+            assert ( set( downstream.id for downstream in ds.aligned_ref_sources.get_downstreams(pgdb=pgdb) )
+                     == { ds.aligned_ref_bg.id, ds.aligned_ref_psf.id } )
+            assert [downstream.id for downstream in ds.reference.get_downstreams(pgdb=pgdb)] == [ds.sub_image.id]
+            assert [downstream.id for downstream in ds.sub_image.get_downstreams(pgdb=pgdb)] == [ds.detections.id]
+            assert [downstream.id for downstream in ds.detections.get_downstreams(pgdb=pgdb)] == [ds.cutouts.id]
+            assert ( [downstream.id for downstream in ds.cutouts.get_downstreams(pgdb=pgdb)] ==
                      [ds.measurement_set.id] )
             ms_dstrs = set( measurement.id for measurement in ds.measurements )
             ms_dstrs.add( ds.deepscore_set.id )
-            assert ( set( downstream.id for downstream in ds.measurement_set.get_downstreams(session=session) )
+            assert ( set( downstream.id for downstream in ds.measurement_set.get_downstreams(pgdb=pgdb) )
                      == ms_dstrs )
-            assert all ( m.get_downstreams(session=session) == [] for m in ds.measurements )
+            assert all ( m.get_downstreams(pgdb=pgdb) == [] for m in ds.measurements )
             ds_dstrs = set( deepscore.id for deepscore in ds.deepscores )
-            assert ( set( downstream.id for downstream in ds.deepscore_set.get_downstreams(session=session) )
+            assert ( set( downstream.id for downstream in ds.deepscore_set.get_downstreams(pgdb=pgdb) )
                      == ds_dstrs )
-            assert all( d.get_downstreams(session=session) == [] for d in ds.deepscores )
+            assert all( d.get_downstreams(pgdb=pgdb) == [] for d in ds.deepscores )
 
 
     finally:
         if 'ds' in locals():
             ds.delete_everything()
         # Clean up the provenance tag created by the pipeline
-        with SmartSession() as session:
-            session.execute( sa.text( "DELETE FROM provenance_tags WHERE tag=:tag" ),
-                            { 'tag': 'test_get_upstreams_and_downstreams' } )
-            session.commit()
+        with PGDB() as pgdb:
+            pgdb.execute( sql.SQL( "DELETE FROM provenance_tags WHERE tag={tag}" )
+                          .format( tag='test_get_upstreams_and_downstreams' ) )
+            pgdb.commit()
         # added this cleanup to make sure the temp data folder is cleaned up
         # this should be removed after we add datastore failure modes (issue #150)
         shutil.rmtree(os.path.join(os.path.dirname(exposure.get_fullpath()), '115'), ignore_errors=True)

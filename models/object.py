@@ -3,10 +3,12 @@ import uuid
 import numbers
 import requests
 import functools
+import textwrap
 
 import numpy as np
 
 import psycopg
+from psycopg import sql
 import sqlalchemy as sa
 from sqlalchemy.ext.declarative import declared_attr
 from sqlalchemy.schema import UniqueConstraint
@@ -14,14 +16,11 @@ from sqlalchemy.schema import UniqueConstraint
 from astropy.coordinates import SkyCoord
 import astropy.units
 
-from models.base import Base, SeeChangeBase, SmartSession, PsycopgConnection, UUIDMixin, SpatiallyIndexed
+from models.base import Base, PGDB, SeeChangeBase, PsycopgConnection, UUIDMixin, SpatiallyIndexed
 from models.image import Image
-from models.cutouts import Cutouts
-from models.source_list import SourceList
 from models.zero_point import ZeroPoint
 from models.measurements import Measurements, MeasurementSet
 from models.deepscore import DeepScore, DeepScoreSet
-from models.reference import image_subtraction_components
 from pipeline.catalog_tools import download_gaia_dr3
 from util.config import Config
 from util.logger import SCLogger
@@ -62,6 +61,7 @@ class Object(Base, UUIDMixin, SpatiallyIndexed):
     is_bad = sa.Column(
         sa.Boolean,
         nullable=False,
+        server_default=sa.text("false"),
         index=True,
         doc='Boolean flag to indicate object is bad; only will ever be set manually.'
     )
@@ -78,8 +78,28 @@ class Object(Base, UUIDMixin, SpatiallyIndexed):
         self.calculate_coordinates()
 
 
+    # By definition, objects have no upstreams
+    def get_upstream_ids( self, pgdb=None ):
+        return []
+
+    # Objects have positions downstream
+    # NOTE: they also have measurements and forced photometry downstream,
+    #   but we're not including that here.  Reason: mostly this is used
+    #   for cleanup  in tests, and those will clean up separately.  In
+    #   particular, deleting measurements is fraught because you shouldn't
+    #   do that when you aren't also deleting the parent measurement set.
+    def get_downstream_ids( self, pgdb=None ):
+        downstreams = []
+        with PGDB( pgdb ) as pgdb:
+            q = sql.SQL( "SELECT _id FROM object_positions WHERE object_id={me}" ).format( me=self.id )
+            rows, _cols = pgdb.execute( q )
+            downstreams.extend( [ r[0] for r in rows ] )
+
+        return downstreams
+
+
     def get_measurements_et_al( self, measurement_prov_id, deepscore_prov_id=None, omit_measurements=[],
-                                mjd_min=None, mjd_max=None, min_deepscore=None, session=None ):
+                                mjd_min=None, mjd_max=None, min_deepscore=None, pgdb=None, session=None ):
         """Return lists of sundry objects for this Object.
 
         Parameters
@@ -142,51 +162,118 @@ class Object(Base, UUIDMixin, SpatiallyIndexed):
         mjd_min = None if mjd_min is None else parse_dateobs( mjd_min, output='mjd' )
         mjd_max = None if mjd_max is None else parse_dateobs( mjd_max, output='mjd' )
 
-        with SmartSession( session ) as sess:
+        with PGDB( pgdb if pgdb is not None else session, dictcursor=True ) as pgdb:
             if deepscore_prov_id is not None:
-                q = sess.query( Measurements, MeasurementSet, Image, ZeroPoint, DeepScore, DeepScoreSet )
+                extra = sql.SQL( ",\n       to_jsonb(d) AS deepscores,\n"
+                                 "       to_jsonb(ds) AS deepscore_set\n" )
+                fromclause = sql.SQL( textwrap.dedent(
+                    """\
+                    FROM deepscore_sets ds
+                    INNER JOIN deepscores d ON d.deepscoreset_id=ds._id
+                    INNER JOIN measurement_sets ms ON ds.measurementset_id=ms._id
+                    INNER JOIN measurements m ON m.measurementset_id=ms._id AND m.index_in_sources=d.index_in_sources
+                    """
+                ) )
+                whereclause = sql.SQL( textwrap.dedent(
+                    """\
+                    WHERE ds.provenance_id={dsprov}
+                      AND ms.provenance_id={msprov}
+                    """
+                ) ).format( dsprov=deepscore_prov_id, msprov=measurement_prov_id )
             else:
-                q = sess.query( Measurements, MeasurementSet, Image, ZeroPoint )
+                extra = sql.SQL( "" )
+                fromclause = sql.SQL( "FROM measurement_sets ms\n"
+                                      "INNER JOIN measurements m ON m.measurementset_id=ms._id\n" )
+                whereclause = sql.SQL( "WHERE ms.provenance_id={msprov}\n" ).format( msprov=measurement_prov_id )
 
-            q = ( q.join( MeasurementSet, sa.and_( Measurements.measurementset_id==MeasurementSet._id,
-                                                   MeasurementSet.provenance_id==measurement_prov_id ) )
-                  .join( Cutouts, MeasurementSet.cutouts_id==Cutouts._id )
-                  .join( SourceList, Cutouts.sources_id==SourceList._id )
-                  .join( Image, SourceList.image_id==Image._id )
-                  .join( image_subtraction_components, image_subtraction_components.c.image_id==Image._id )
-                  .join( ZeroPoint, ZeroPoint._id==image_subtraction_components.c.new_zp_id ) )
+            q = sql.SQL( textwrap.dedent(
+                """\
+                SELECT to_jsonb(m) AS measurements,
+                       to_jsonb(ms) AS measurement_set,
+                       to_jsonb(i) AS image,
+                       to_jsonb(z) AS zeropoint{extra}
+                {fromclause}
+                INNER JOIN cutouts c ON ms.cutouts_id=c._id
+                INNER JOIN source_lists s ON c.sources_id=s._id
+                INNER JOIN images i ON s.image_id=i._id
+                INNER JOIN image_subtraction_components isc ON isc.image_id=i._id
+                INNER JOIN zero_points z ON isc.new_zp_id=z._id
+                {whereclause}
+                  AND m.object_id={objid}
+                """ ) ).format( extra=extra, fromclause=fromclause, whereclause=whereclause, objid=self.id )
 
-            if deepscore_prov_id is not None:
-                q = ( q.join( DeepScoreSet, sa.and_( DeepScoreSet.measurementset_id==MeasurementSet._id,
-                                                     DeepScoreSet.provenance_id==deepscore_prov_id ),
-                              isouter=True )
-                      .join( DeepScore, sa.and_( DeepScore.deepscoreset_id==DeepScoreSet._id,
-                                                 DeepScore.index_in_sources==Measurements.index_in_sources ),
-                             isouter=True )
-                     )
-
-            q = q.filter( Measurements.object_id==self.id )
-            if len( omit_measurements ) > 0:
-                q = q.filter( Measurements._id.not_in( omit_measurements ) )
+            if len(omit_measurements) > 0:
+                q += sql.SQL( "  AND m._id NOT IN ({mids})\n" ).format( mids=sql.SQL(",").join(omit_measurements) )
             if mjd_min is not None:
-                q = q.filter( Image.mjd >= mjd_min )
+                q += sql.SQL( "  AND i.mjd>={mjd}\n" ).format( mjd=mjd_min )
             if mjd_max is not None:
-                q = q.filter( Image.mjd <= mjd_max )
+                q += sql.SQL( "  AND i.mjd<={mjd}\n" ).format( mjd=mjd_max)
             if min_deepscore is not None:
-                q = q.filter( DeepScore.score >= min_deepscore )
-            q = q.order_by( Image.mjd )
+                q += sql.SQL( "  AND d.score>={score}\n" ).format( score=min_deepscore )
+            q += sql.SQL( "ORDER BY i.mjd" )
 
-            mess = q.all()
+            rows = pgdb.execute( q )
 
-            retval = { 'measurements': [ m[0] for m in mess ],
-                       'measurementsets': [ m[1] for m in mess ],
-                       'images': [ m[2] for m in mess ],
-                       'zeropoints': [ m[3] for m in mess ] }
+            retval = { 'measurements': [ Measurements.create( **(r['measurements']) ) for r in rows ],
+                       'measurementsets': [ MeasurementSet.create( **(r['measurement_set']) ) for r in rows ],
+                       'images': [ Image.create( **(r['image']) ) for r in rows ],
+                       'zeropoints': [ ZeroPoint.create( **(r['zeropoint']) ) for r in rows ]
+                      }
+            # Using JSONB will have stringified the ids... just not going to worry about it right now...
+            # ...when we're done with Issue #516, maybe we can rename all the database _id columns to
+            #    id, and then the id setter in UUIDMixin will be run here even when we use JSON.
             if deepscore_prov_id is not None:
-                retval['deepscores'] = [ m[4] for m in mess ]
-                retval['deepscoresets'] = [ m[5] for m in mess ]
+                retval['deepscores'] = [ DeepScore.create( **(r['deepscores']) ) for r in rows ]
+                retval['deepscoresets'] = [ DeepScoreSet.create( **(r['deepscore_set']) ) for r in rows ]
 
             return retval
+
+
+        # with SmartSession( session ) as sess:
+        #     if deepscore_prov_id is not None:
+        #         q = sess.query( Measurements, MeasurementSet, Image, ZeroPoint, DeepScore, DeepScoreSet )
+        #     else:
+        #         q = sess.query( Measurements, MeasurementSet, Image, ZeroPoint )
+
+        #     q = ( q.join( MeasurementSet, sa.and_( Measurements.measurementset_id==MeasurementSet._id,
+        #                                            MeasurementSet.provenance_id==measurement_prov_id ) )
+        #           .join( Cutouts, MeasurementSet.cutouts_id==Cutouts._id )
+        #           .join( SourceList, Cutouts.sources_id==SourceList._id )
+        #           .join( Image, SourceList.image_id==Image._id )
+        #           .join( image_subtraction_components, image_subtraction_components.c.image_id==Image._id )
+        #           .join( ZeroPoint, ZeroPoint._id==image_subtraction_components.c.new_zp_id ) )
+
+        #     if deepscore_prov_id is not None:
+        #         q = ( q.join( DeepScoreSet, sa.and_( DeepScoreSet.measurementset_id==MeasurementSet._id,
+        #                                              DeepScoreSet.provenance_id==deepscore_prov_id ),
+        #                       isouter=True )
+        #               .join( DeepScore, sa.and_( DeepScore.deepscoreset_id==DeepScoreSet._id,
+        #                                          DeepScore.index_in_sources==Measurements.index_in_sources ),
+        #                      isouter=True )
+        #              )
+
+        #     q = q.filter( Measurements.object_id==self.id )
+        #     if len( omit_measurements ) > 0:
+        #         q = q.filter( Measurements._id.not_in( omit_measurements ) )
+        #     if mjd_min is not None:
+        #         q = q.filter( Image.mjd >= mjd_min )
+        #     if mjd_max is not None:
+        #         q = q.filter( Image.mjd <= mjd_max )
+        #     if min_deepscore is not None:
+        #         q = q.filter( DeepScore.score >= min_deepscore )
+        #     q = q.order_by( Image.mjd )
+
+        #     mess = q.all()
+
+        #     retval = { 'measurements': [ m[0] for m in mess ],
+        #                'measurementsets': [ m[1] for m in mess ],
+        #                'images': [ m[2] for m in mess ],
+        #                'zeropoints': [ m[3] for m in mess ] }
+        #     if deepscore_prov_id is not None:
+        #         retval['deepscores'] = [ m[4] for m in mess ]
+        #         retval['deepscoresets'] = [ m[5] for m in mess ]
+
+        #     return retval
 
 
     def get_mean_coordinates(self, sigma=3.0, iterations=3, measurement_list_kwargs=None):
@@ -772,7 +859,7 @@ class ObjectCatalogMatch:
         matches = []
         if len(rows) > 0:
             found_existing = True
-            matches = [ cls( **r ) for r in rows ]
+            matches = [ cls.create( **r ) for r in rows ]
             matches.sort( key=lambda o: o.dist )
         else:
             cursor.execute( f"SELECT * FROM {cls.nomatchtable} WHERE object_id=%(objid)s AND match_radius=%(rad)s ",

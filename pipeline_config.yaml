@@ -383,11 +383,14 @@ subtraction:
   alignment:
     method: swarp
   reference:
-    minovfrac: 0.85
-    must_match_instrument: true
-    must_match_filter: true
-    must_match_section: false
-    must_match_target: false
+    search_by: image
+    match_instrument: true
+    match_filter: true
+    min_overlap: 0.85
+    max_dist: null
+    skip_bad: true
+    multiple_ok: true
+    choice_criteria: [ 'overlap' ]
 
 # ======================================================================#
 # Detection
@@ -682,6 +685,35 @@ referencing:
 #      max_catalog_mag: [22.0]
 #      mag_range_catalog: 6.0
 #      min_catalog_stars: 50
+
+# ======================================================================
+# ======================================================================
+# ======================================================================
+# Forced photometry, used by pipeline/lightcurve.py
+
+lightcurve:
+  zp_prov: null   # This or zp_prov_tag to be non-null, either in config or at runtime
+  zp_prov_tag: null
+  zp_prov_tag_process: photocal
+  object_position_prov: null   # If this and ..._tag are null, uses raw object position
+  object_position_prov_tag: null
+  object_position_prov_tag_process: positioning
+  subtraction_config:
+    method: zogy
+    refset: null
+    reference:
+      search_by: ra/dec
+      match_instrument: true
+      match_filter: true
+      min_overlap: null
+      max_dist: 0.00833333   # 30¨
+      skip_bad: true
+      multiple_ok: false
+      choice_criteria: [ 'distance', 'unconstrained' ]
+    alignment:
+      method: swarp
+      min_matched: 10
+  crop_image: [ 256, 256 ]
 
 
 # ======================================================================

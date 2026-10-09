@@ -10,12 +10,12 @@ import requests_file
 
 import numpy as np
 
-import sqlalchemy as sa
+import psycopg.sql as sql
 from bs4 import BeautifulSoup
 from datetime import datetime
 from astropy.io import fits
 
-from models.base import SmartSession
+from models.base import PGDB
 from models.provenance import Provenance
 from models.exposure import Exposure
 from models.image import Image
@@ -199,9 +199,9 @@ def ptf_datastore_through_cutouts( datastore_factory, ptf_exposure, ptf_ref, ptf
     ImageAligner.cleanup_temp_images()
 
     # Clean out the provenance tag that may have been created by the datastore_factory
-    with SmartSession() as session:
-        session.execute( sa.text( "DELETE FROM provenance_tags WHERE tag=:tag" ), {'tag': 'ptf_datastore' } )
-        session.commit()
+    with PGDB() as pgdb:
+        pgdb.execute( sql.SQL( "DELETE FROM provenance_tags WHERE tag={tag}" ).format( tag='ptf_datastore' ) )
+        pgdb.commit()
 
 
 @pytest.fixture
@@ -229,9 +229,9 @@ def ptf_datastore_through_zp( datastore_factory, ptf_exposure, ptf_ref, ptf_cach
     ImageAligner.cleanup_temp_images()
 
     # Clean out the provenance tag that may have been created by the datastore_factory
-    with SmartSession() as session:
-        session.execute( sa.text( "DELETE FROM provenance_tags WHERE tag=:tag" ), {'tag': 'ptf_datastore' } )
-        session.commit()
+    with PGDB() as pgdb:
+        pgdb.execute( sql.SQL( "DELETE FROM provenance_tags WHERE tag={tag}" ).format( tag='ptf_datastore' ) )
+        pgdb.commit()
 
 
 @pytest.fixture
@@ -252,9 +252,9 @@ def ptf_datastore(datastore_factory, ptf_exposure, ptf_ref, ptf_cache_dir, ptf_b
     ImageAligner.cleanup_temp_images()
 
     # Clean out the provenance tag that may have been created by the datastore_factory
-    with SmartSession() as session:
-        session.execute( sa.text( "DELETE FROM provenance_tags WHERE tag=:tag" ), {'tag': 'ptf_datastore' } )
-        session.commit()
+    with PGDB() as pgdb:
+        pgdb.execute( sql.SQL( "DELETE FROM provenance_tags WHERE tag={tag}" ).format( tag='ptf_datastore' ) )
+        pgdb.commit()
 
 
 @pytest.fixture(scope='session')
@@ -358,8 +358,8 @@ def ptf_reference_image_datastores(ptf_images_datastore_factory):
 
     yield dses
 
-    with SmartSession() as session:
-        expsrs = session.query( Exposure ).filter( Exposure._id.in_( [ d.image.exposure_id for d in dses ] ) ).all()
+    with PGDB( dictcursor=True ) as pgdb:
+        expsrs = Exposure.get_batch_by_ids( [ d.image.exposure_id for d in dses ] )
 
     for ds in dses:
         ds.delete_everything()
@@ -368,9 +368,9 @@ def ptf_reference_image_datastores(ptf_images_datastore_factory):
         expsr.delete_from_disk_and_database()
 
     # Clean out the provenance tag that may have been created by the datastore_factory
-    with SmartSession() as session:
-        session.execute( sa.text( "DELETE FROM provenance_tags WHERE tag=:tag" ), {'tag': 'ptf_reference_images' } )
-        session.commit()
+    with PGDB() as pgdb:
+        pgdb.execute( sql.SQL( "DELETE FROM provenance_tags WHERE tag={tag}" ).format( tag='ptf_reference_images' ) )
+        pgdb.commit()
 
 
 @pytest.fixture
@@ -379,8 +379,8 @@ def ptf_supernova_image_datastores(ptf_images_datastore_factory):
 
     yield dses
 
-    with SmartSession() as session:
-        expsrs = session.query( Exposure ).filter( Exposure._id.in_( [ d.image.exposure_id for d in dses ] ) ).all()
+    with PGDB( dictcursor=True ) as pgdb:
+        expsrs = Exposure.get_batch_by_ids( [ d.image.exposure_id for d in dses ] )
 
     for ds in dses:
         ds.delete_everything()
@@ -389,9 +389,9 @@ def ptf_supernova_image_datastores(ptf_images_datastore_factory):
         expsr.delete_from_disk_and_database()
 
     # Clean out the provenance tag that may have been created by the datastore_factory
-    with SmartSession() as session:
-        session.execute( sa.text( "DELETE FROM provenance_tags WHERE tag=:tag" ), {'tag': 'ptf_supernova_images' } )
-        session.commit()
+    with PGDB() as pgdb:
+        pgdb.execute( sql.SQL( "DELETE FROM provenance_tags WHERE tag={tag}" ).format( tag='ptf_supernova_images' ) )
+        pgdb.commit()
 
 
 @pytest.fixture(scope='session')
@@ -409,8 +409,11 @@ def ptf_aligned_image_datastores(request, ptf_reference_image_datastores, ptf_ca
         ds = ptf_reference_image_datastores[0]
         improv = Provenance.get( ds.image.provenance_id )
         srcprov = Provenance.get( ds.sources.provenance_id )
-        ( warped_prov, warped_sources_prov,
-          warped_wcs_prov, warped_zp_prov ) = aligner.get_provenances( [improv, srcprov], srcprov )
+        provdict = aligner.get_provenances( [improv, srcprov], srcprov )
+        warped_prov = provdict[ 'warped' ]
+        warped_sources_prov = provdict[ 'sources' ]
+        warped_wcs_prov = provdict[ 'wcs' ]
+        warped_zp_prov = provdict[ 'zp' ]
 
         with open(os.path.join(cache_dir, 'manifest.txt')) as f:
             filenames = f.read().splitlines()
@@ -503,7 +506,8 @@ def ptf_ref(
     utag = base64.b32encode(utag.digest()).decode().lower()
     utag = f'u-{utag[:6]}'
 
-    cache_base_name = f'187/PTF_20090405_073932_11_R_ComSci_{refmaker.coadd_provs["starting_point"].id[:6]}_{utag}'
+    cache_base_name = ( f'187/PTF_20090405_073932_11_R_ComSci_{refmaker.coadd_provs["starting_point"].id[:6]}_{utag}'
+                        f'_187.9831+04.4838' )
 
     extensions = [
         '',
@@ -600,28 +604,30 @@ def ptf_ref(
 
     coadd_datastore.delete_everything()
 
-    with SmartSession() as session:
-        ref_in_db = session.scalars(sa.select(Reference).where(Reference._id == ref.id)).first()
-        assert ref_in_db is None  # should have been deleted by cascade when image is deleted
+    with PGDB() as pgdb:
+        rows, _cols = pgdb.execute( sql.SQL( "SELECT _id FROM refs WHERE _id={refid}" ).format( refid=ref.id ) )
+        assert len(rows) == 0
 
         # Clean up the ref set
         if must_delete_refset:
-            session.execute( sa.delete( RefSet ).where( RefSet._id==refset.id ) )
-            session.commit()
+            pgdb.execute( sql.SQL( "DELETE from refsets WHERE _id={refsetid}" ).format( refsetid=refset.id ) )
+            pgdb.commit()
 
 
 @pytest.fixture
 def ptf_ref_offset(ptf_ref):
     offset_image = None
     try:
-        with SmartSession() as session:
-            ptf_ref_zp = session.query( ZeroPoint ).filter( ZeroPoint._id==ptf_ref.zp_id ).first()
-            ptf_ref_wcs = session.query( WorldCoordinates ).filter( WorldCoordinates._id==ptf_ref_zp.wcs_id ).first()
-            ptf_ref_sources = session.query( SourceList ).filter( SourceList._id==ptf_ref_wcs.sources_id ).first()
-            ptf_ref_bg = session.query( Background ).filter( Background.sources_id==ptf_ref_sources._id ).first()
-            ptf_ref_image = session.query( Image ).filter( Image._id==ptf_ref_sources.image_id ).first()
+        with PGDB() as pgdb:
+            ptf_ref_zp = ZeroPoint.get_by_id( ptf_ref.zp_id, pgdb=pgdb )
+            ptf_ref_wcs = WorldCoordinates.get_by_id( ptf_ref_zp.wcs_id, pgdb=pgdb )
+            ptf_ref_sources = SourceList.get_by_id( ptf_ref_wcs.sources_id, pgdb=pgdb )
+            ptf_ref_bg = Background.get_by_field_value( 'sources_id', ptf_ref_sources.id, pgdb=pgdb )[0]
+            ptf_ref_image = Image.get_by_id( ptf_ref_sources.image_id, pgdb=pgdb )
 
         offset_image = Image.copy_image( ptf_ref_image )
+        # THOUGHT REQUIRED : should this next line be in Image.copy_image?
+        offset_image._coadd_component_zp_ids = ptf_ref_image.coadd_component_zp_ids
         offset_image.ra_corner_00 -= 0.5
         offset_image.ra_corner_01 -= 0.5
         offset_image.ra_corner_10 -= 0.5
@@ -692,22 +698,15 @@ def ptf_refset(provenance_base):
 
     yield refmaker.refset
 
-    # delete all the references and the refset
-    with SmartSession() as session:
-        refs = session.scalars(sa.select(Reference)
-                               .where(Reference.provenance_id == refmaker.refset.provenance_id)
-                               ).all()
-        for ref in refs:
-            session.delete(ref)
-
-        session.execute( sa.delete( RefSet ).where( RefSet.name == refmaker.refset.name ) )
-
-        session.commit()
-
-    # Clean out the provenance tag that may have been created by the refmaker
-    with SmartSession() as session:
-        session.execute( sa.text( "DELETE FROM provenance_tags WHERE tag=:tag" ), {'tag': 'ptf_refset' } )
-        session.commit()
+    with PGDB() as pgdb:
+        # delete all the references and the refset
+        pgdb.execute( sql.SQL( "DELETE FROM refs WHERE provenance_id={provid}" )
+                      .format( provid=refmaker.refset.provenance_id ) )
+        pgdb.execute( sql.SQL( "DELETE FROM refsets WHERE name={name}" )
+                      .format( name=refmaker.refset.name ) )
+        # Clean out the provenance tag that may have been created by the refmaker
+        pgdb.execute( "DELETE FROM provenance_tag WHERE tag='ptf_refset'" )
+        pgdb.commit()
 
 
 @pytest.fixture

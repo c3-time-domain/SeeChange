@@ -15,7 +15,7 @@ from sqlalchemy.schema import UniqueConstraint
 from util.util import NumpyAndUUIDJsonEncoder, asUUID, listify
 from util.logger import SCLogger
 
-from models.base import Base, UUIDMixin, SeeChangeBase, SmartSession, PGDB
+from models.base import Base, UUIDMixin, SeeChangeBase, PGDB
 
 
 
@@ -73,10 +73,10 @@ class CodeVersion(Base, UUIDMixin):
         'extraction': (0,9,0),
         'astrocal' : (0,6,0),
         'photocal' : (0,3,0),
-        'subtraction': (0,4,0),
+        'subtraction': (0,5,0),
         'detection': (0,4,0),
         'cutting': (0,2,0),
-        'measuring': (0,2,0),
+        'measuring': (0,3,0),
         'scoring': (0,2,0),
         'alerting': (0,1,0),
         'fakeinjection' : (0,2,0),
@@ -86,13 +86,18 @@ class CodeVersion(Base, UUIDMixin):
         'coaddition' : (0,9,0),
         'positioning': (0,2,0),
         'flat_bias_builder': (0,5,0),
+        'Image.trim': (0,1,0),
+        'Image.trim.sources': (0,1,0),
+        'Image.trim.wcs': (0,1,0),
+        'Image.trim.zp': (0,1,0),
+        'diaforcedphot': (0,2,0),
 
         # The next couple are processes whose direct data products
         #   are not saved to the database.  If their versions change,
         #   then probably the subtraction, and maybe the coadd,
         #   version should change too, as changes in these processes
         #   will affect both subtraction and coadd.
-        'alignment' : (0,4,0),
+        'alignment' : (0,5,0),
         'inpainting' : (0,2,0),
 
         # These are processes for downloading stuff
@@ -114,8 +119,8 @@ class CodeVersion(Base, UUIDMixin):
 
 
     @classmethod
-    def get_by_id( cls, cvid, session=None ):
-        with PGDB( session, dictcursor=True ) as pgdb:
+    def get_by_id( cls, cvid, pgdb=None, session=None ):
+        with PGDB( pgdb if pgdb is not None else session, dictcursor=True ) as pgdb:
             rows = pgdb.execute(
                 sql.SQL( "SELECT * FROM code_versions WHERE _id={cvid}" )
                 .format( cvid=cvid )
@@ -248,11 +253,11 @@ class Provenance(Base):
     @property
     def upstreams( self ):
         if self._upstreams is None:
-            self._upstreams = self.get_upstreams()
+            self.get_upstreams( save_to_object=True )
         return self._upstreams
 
 
-    def __init__(self, dont_update_id=False, _id=None, **kwargs):
+    def __init__(self, dont_update_id=False, _id=None, pgdb=None, **kwargs):
         """Create a provenance object.
 
         Parameters
@@ -333,7 +338,7 @@ class Provenance(Base):
             else:
                 self.code_version_id = code_version_id
         else:
-            cv = Provenance.get_code_version( process=self.process )
+            cv = Provenance.get_code_version( process=self.process, pgdb=pgdb )
             self.code_version_id = cv.id
 
         self.parameters = kwargs.get('parameters', {})
@@ -381,13 +386,31 @@ class Provenance(Base):
 
 
     @classmethod
-    def get( cls, provid, session=None ):
-        """Get a provenance given an id, or None if it doesn't exist."""
-        with PGDB( session, dictcursor=True ) as pgdb:
+    def get( cls, provid, must_exist=False, pgdb=None, session=None ):
+        """Get a provenance given an id, or None if it doesn't exist.
+
+        If pvid is a Provenance, it is just returned.  (This may be used
+        as a convenience function to allow somebody to pass either a
+        Provenance or its id; just call this to make sure you have the
+        Provenance object.)
+
+        """
+        if provid is None:
+            if must_exist:
+                raise ValueError( "Dude.  You passed None as provid, and then set must_exist.  What did you expect?" )
+            return None
+
+        if isinstance( provid, Provenance ):
+            return provid
+
+        with PGDB( pgdb if pgdb is not None else session, dictcursor=True ) as pgdb:
             rows = pgdb.execute( sql.SQL( "SELECT * FROM provenances WHERE _id={provid}" )
                                  .format( provid=provid ) )
             if len(rows) == 0:
-                return None
+                if must_exist:
+                    return RuntimeError( "Failed to find provenance with id {provid}" )
+                else:
+                    return None
             elif len(rows) > 1:
                 raise RuntimeError( "This should never happen." )
             else:
@@ -405,7 +428,7 @@ class Provenance(Base):
 
 
     @classmethod
-    def get_for_tag( cls, tag, process=None, conn=None ):
+    def get_for_tag( cls, tag, process=None, pgdb=None ):
         """Return either the provenance for a tag and process, or all provenances for a tag.
 
         Parameters
@@ -434,12 +457,12 @@ class Provenance(Base):
           provenance tag is not defined).
 
         """
-        with PGDB( conn, dictcursor=True ) as pgdb:
+        with PGDB( pgdb, dictcursor=True ) as pgdb:
             q = sql.SQL( textwrap.dedent(
                 """\
-                SELECT p.* FROM provenances
+                SELECT p.* FROM provenances p
                 INNER JOIN provenance_tags t ON p._id=t.provenance_id
-                WHERE t.tag={gtag}
+                WHERE t.tag={tag}
                 """
             ) ).format( tag=tag )
             if process is not None:
@@ -468,10 +491,11 @@ class Provenance(Base):
         # for hash get the static versions from codeversion rather than UUID which changes each run of tests
         cv_string = None
         if self.code_version_id is not None:
-            with SmartSession() as sess:
-                cv = sess.query( CodeVersion ).filter( CodeVersion._id == self.code_version_id ).first()
+            with PGDB() as pgdb:
+                rows, _cols = pgdb.execute( sql.SQL( "SELECT version_major, version_minor FROM code_versions "
+                                                     "WHERE _id={cvid}").format( cvid=self.code_version_id ) )
                 # Don't use patch because patch shouldn't change data thus require a provenance change
-                cv_string = f"{cv.version_major}.{cv.version_minor}"
+                cv_string = f"{rows[0][0]}.{rows[0][1]}"
 
         superdict = dict(
             process=self.process,
@@ -485,7 +509,7 @@ class Provenance(Base):
 
 
     @classmethod
-    def get_code_version(cls, process, session=None, nocommit=False):
+    def get_code_version(cls, process, pgdb=None, session=None, nocommit=False):
         """Get the most relevant or latest code version.
 
         Searches the DB to check if the codeversion matching the current
@@ -493,7 +517,10 @@ class Provenance(Base):
 
         Parameters
         ----------
-        session: PGDB, psycopg.Connection, psycopg.Cursor, or (shudder) sa Session, default None
+        process : str
+           Process for code version
+
+        pgdb, session: PGDB, psycopg.Connection, psycopg.Cursor, or (shudder) sa Session, default None
             Databse connection.  If None, a new session is created, and
             closed as soon as the function finishes.  WARNING : will
             commit or rollback unless nocommit=True.  Use both this and nocomit with care;
@@ -510,6 +537,7 @@ class Provenance(Base):
             CodeVersion._code_version_cache = { i: None for i in CodeVersion.CODE_VERSION_DICT }
 
         if CodeVersion._code_version_cache[process] is None:
+            pgdb = pgdb if pgdb is not None else session
 
             # down the line may want to perform a comparison with the most recent using a search like this
             # with SmartSession( session ) as session:
@@ -524,7 +552,7 @@ class Provenance(Base):
 
             codebase_semver = CodeVersion.CODE_VERSION_DICT[process]  # (major, minor, patch) eg. (2,0,1)
 
-            with PGDB( session, dictcursor=True ) as pgdb:
+            with PGDB( pgdb, dictcursor=True ) as pgdb:
                 # To minimize use of locks, first see if the code version exists, and if it does, be happy.
                 # If not, lock the table, check *again* to see if it exists (because another process
                 # might have created it in the mean time!), and create it if it doesn't.
@@ -581,20 +609,23 @@ class Provenance(Base):
         return CodeVersion._code_version_cache[process]
 
 
-    def insert( self, session=None, _exists_ok=False, nocommit=False ):
+    def insert( self, pgdb=None, session=None, _exists_ok=False, nocommit=False ):
         """Insert the provenance into the database.
 
         Will raise a constraint violation if the provenance ID already exists in the database.
 
         Parameters
         ----------
-          session : PGDB, psycpog.Connection, psycopg.Cursor, or SQLAlchmey sesion, or None
+          pgdb, session : PGDB, psycpog.Connection, psycopg.Cursor, or SQLAlchmey sesion, or None
             Usually you don't want to use this.  Warning: commits or
-            rollbacks unless nocommit is True.
+            rollbacks unless nocommit is True.  Two arguments are
+            synonyms; if both are given, pgdb is used.
 
         """
 
-        with PGDB( session ) as pgdb:
+        pgdb = pgdb if pgdb is not None else session
+
+        with PGDB( pgdb ) as pgdb:
             # Lock the table so we don't have a disaster of two different processes inserting the
             #  provenance and the upstreams all at the same time.  But, because any use of database
             #  locks is just asking for a deadlock, first search without locking, and if it exists,
@@ -646,31 +677,63 @@ class Provenance(Base):
                     pgdb.rollback()
 
 
-    def insert_if_needed( self, session=None, nocommit=False ):
+    def insert_if_needed( self, pgdb=None, session=None, nocommit=False ):
         """Insert the provenance into the database if it's not already there.
 
         Parameters
         ----------
-          session : PGDB, psycopg.Connection, psycopg.Cursor, sa Session, or None
+          pgdb, session : PGDB, psycopg.Connection, psycopg.Cursor, sa Session, or None
             Usually you don't want to use this.  Warning: commits unless nocommit=True.
 
         """
 
-        self.insert( session=session, _exists_ok=True, nocommit=nocommit )
+        pgdb = pgdb if pgdb is not None else session
+        self.insert( pgdb=pgdb, _exists_ok=True, nocommit=nocommit )
 
 
-    def get_upstreams( self, pgdb=None ):
-        with PGDB( pgdb, dictcursor=True ) as pgdb:
-            q = sql.SQL( textwrap.dedent(
-                """\
-                SELECT p.* FROM provenances p
-                INNER JOIN provenance_upstreams pu ON p._id=pu.upstream_id
-                WHERE pu.downstream_id={me}
-                ORDER BY p._id
-                """
-            ) ).format( me=self.id )
-            rows = pgdb.execute( q )
-            return [ Provenance(dont_update_id=True, **row) for row in rows ]
+    def get_upstreams( self, pgdb=None, save_to_object=False, always_reload=True ):
+        """Get the upstream provenances of this provenance.
+
+        Parameters
+        ----------
+           pgdb: PGDB, psycopg.connection, or psycopg.cursor, default None
+             Database connection.  If not given, will open and close
+             connections as necessary.  (This can also be a
+             base.PsycopgConnection or base.Session, but those are
+             deprecated and should not be used in new code.)
+
+           save_to_object: bool, default False
+             If True, then update self._upstreams with what is found.
+             (This defaults to False for backwards compatibility.)
+
+           always_reload: bool, default True
+             If False and self._upstreams is not None, then just return
+             that.  If True, always go to the database.  (This defalts
+             to True for backwards compatiblity.)
+
+        Returns
+        -------
+           list of Provenance
+
+        """
+
+        if ( not always_reload ) and ( self._upstreams is not None ):
+            return self._upstreams
+        else:
+            with PGDB( pgdb, dictcursor=True ) as pgdb:
+                q = sql.SQL( textwrap.dedent(
+                    """\
+                    SELECT p.* FROM provenances p
+                    INNER JOIN provenance_upstreams pu ON p._id=pu.upstream_id
+                    WHERE pu.downstream_id={me}
+                    ORDER BY p._id
+                    """
+                ) ).format( me=self.id )
+                rows = pgdb.execute( q )
+                upstreams = [ Provenance(dont_update_id=True, **row) for row in rows ]
+                if save_to_object:
+                    self._upstreams = upstreams
+                return upstreams
 
     def get_downstreams( self, pgdb=None ):
         with PGDB( pgdb, dictcursor=True ) as pgdb:

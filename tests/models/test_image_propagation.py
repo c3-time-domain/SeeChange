@@ -7,6 +7,7 @@ from models.exposure import Exposure
 from models.image import Image
 from models.source_list import SourceList
 from models.background import Background
+from models.psf import PSF
 from models.world_coordinates import WorldCoordinates
 from models.zero_point import ZeroPoint
 from models.reference import Reference
@@ -52,7 +53,7 @@ def test_image_upstreams_downstreams( ptf_ref, ptf_supernova_image_datastores, p
     assert asUUID( upstrs[0].id ) == asUUID( ptf_subtraction1_datastore.zp.id )
     assert asUUID( upstrs[1].id ) == asUUID( ptf_ref.id )
 
-    assert subim.coadd_component_zp_ids == []
+    assert subim.coadd_component_zp_ids is None
 
     # Test get_coadd_from_components
     new_image = None
@@ -252,6 +253,9 @@ def test_multiple_images_badness(
                                   provenance_id=provenance_extra.id, filepath=f'foo{extra}_bg', md5sum=uuid.uuid4(),
                                   image_shape=(256,256) )
                 bkg.insert( session=session )
+                psf = PSF( sources_id=srclist.id, _format=3, fwhm_pixels=1.2345,
+                           filepath=f'foo{extra}psf', md5sum=uuid.uuid4() )
+                psf.insert( session=session )
                 wcs = WorldCoordinates( sources_id=srclist.id, provenance_id=provenance_extra.id,
                                         filepath=f'foo{extra}_wcs', md5sum=uuid.uuid4() )
                 wcs._fill_bogus_coordinate_fields()
@@ -266,11 +270,11 @@ def test_multiple_images_badness(
                 bkg = Background.get_by_id( bkg.id, session=session )
                 wcs = WorldCoordinates.get_by_id( wcs.id, session=session )
                 zp = ZeroPoint.get_by_id( zp.id, session=session )
-                return srclist, bkg, wcs, zp
+                return srclist, bkg, psf, wcs, zp
 
-        _srclist1, _bkg1, _wcs1, zp1 = make_associates( sim_image1, "1" )
-        _srclist2, _bkg2, _wcs2, zp2 = make_associates( sim_image2, "2" )
-        _srclist3, _bkg3, _wcs3, zp3 = make_associates( sim_image3, "3" )
+        _srclist1, _bkg1, _psf1, _wcs1, zp1 = make_associates( sim_image1, "1" )
+        _srclist2, _bkg2, _psf2, _wcs2, zp2 = make_associates( sim_image2, "2" )
+        _srclist3, _bkg3, _psf3, _wcs3, zp3 = make_associates( sim_image3, "3" )
         cleanupzps.extend( [ zp1, zp2, zp3 ] )
 
         # make an image from the two bad exposures using subtraction
@@ -288,7 +292,7 @@ def test_multiple_images_badness(
         ref = Reference.get_by_id( ref.id )
         assert ref.own_bitflag == 0
         assert ref.bitflag == sim_image2.bitflag
-        sim_image4 = Image.from_new_and_ref( zp3, ref )
+        sim_image4 = Image.from_new_and_ref( new_image_zp=zp3, ref=ref )
         improvs = Provenance.get_batch( [ refprov.id, sim_image3.provenance_id ] )
         prov4 = Provenance( process='test_process',
                             upstreams=improvs,
@@ -301,7 +305,7 @@ def test_multiple_images_badness(
         sim_image4.filepath = sim_image4.invent_filepath()
         cleanups.append( sim_image4 )
         sim_image4.insert()
-        _srclist4, _bkg4, _wcs4, zp4 = make_associates( sim_image4, "4" )
+        _srclist4, _bkg4, _psf4, _wcs4, zp4 = make_associates( sim_image4, "4" )
         cleanupzps.append( zp4 )
 
         assert sim_image4.id is not None
@@ -329,13 +333,13 @@ def test_multiple_images_badness(
         assert sim_image4.own_bitflag == 2 ** 3  # only this bit is from the image itself
 
         # make a new subtraction:
-        _srclist5, _bkg5, _wcs5, zp5 = make_associates( sim_image5, "5" )
-        _srclist6, _bkg6, _wcs6, zp6 = make_associates( sim_image6, "6" )
+        _srclist5, _bkg5, _psf5, _wcs5, zp5 = make_associates( sim_image5, "5" )
+        _srclist6, _bkg6, _psf6, _wcs6, zp6 = make_associates( sim_image6, "6" )
         cleanupzps.extend( [ zp5, zp6 ] )
         ref = Reference( zp_id=zp6.id, provenance_id=refprov.id )
         ref.insert()
 
-        sim_image7 = Image.from_ref_and_new( ref, zp5 )
+        sim_image7 = Image.from_ref_and_new( ref=ref, new_image_zp=zp5 )
         improvs = Provenance.get_batch( [ refprov.id, sim_image6.provenance_id ] )
         prov7 = Provenance( process='test_process',
                             upstreams=improvs,

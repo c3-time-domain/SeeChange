@@ -5,14 +5,16 @@ import pathlib
 import uuid
 # import traceback
 
+import numpy as np
 import sqlalchemy as sa
 import psycopg
+from psycopg import sql
 import astropy.time
 
 from util.util import listify, asUUID, env_as_bool
 from util.logger import SCLogger
 
-from models.base import SmartSession, PsycopgConnection, FileOnDiskMixin, FourCorners
+from models.base import PGDB, SmartSession, PsycopgConnection, FileOnDiskMixin
 from models.provenance import Provenance, ProvenanceTag
 from models.exposure import Exposure
 from models.image import Image
@@ -21,7 +23,7 @@ from models.psf import PSF
 from models.background import Background
 from models.world_coordinates import WorldCoordinates
 from models.zero_point import ZeroPoint
-from models.reference import Reference, image_subtraction_components
+from models.reference import Reference
 from models.cutouts import Cutouts
 from models.measurements import Measurements, MeasurementSet
 from models.deepscore import DeepScore, DeepScoreSet
@@ -60,7 +62,10 @@ class ProvenanceTree(dict):
 
     """
 
-    def __init__( self, provs={}, upstream_steps={} ):
+    def __init__( self, provs={}, upstream_steps={},
+                  noupstreams=['positioning', 'referencing', 'coaddition', 'starting_point'],
+                  processmap={'preprocessing': 'starting_point'}
+                 ):
         """Create a ProvenanceTree.
 
         Once created, the provences can be accessed from the
@@ -74,14 +79,131 @@ class ProvenanceTree(dict):
             A dictionary of processname : provenance
 
           upstream_steps : dict
-            A dictionary of processname : list of upstream process
-            names.  This dictionary must be ordered, so that all of the
-            upstreams of a process are earlier in the upstream_steps
-            dictionary.
+            A dictionary of process name : list of upstream process names
+
+          noupstreams : list of str, default ['positioning', 'referenceing', 'coaddition', 'starting_point']
+            Used in append_provenance (cf).
+
+          processmap: dict of str: str, default {'preprocessing': 'starting_point'}
+            Used in append_provenance (cf)
+
 
         """
         super().__init__( provs )
         self.upstream_steps = upstream_steps
+        self._noupstreams = noupstreams
+        self._processmap = processmap
+
+    @property
+    def sorted_processes( self ):
+        """Get a list of processes, in order such that if a is upstream of b, a is earlier than b in the list."""
+
+        # TODO: caching so we don't sort every time we access this property?
+        # We'd have to also have a "dirty" flag to mark if the dict or the upstream_steps were changed.
+
+        # There's probably a more elegant way to do this than the manual insertion sort I've written here.
+        def _isupstream( process_down, process_up ):
+            if len( self.upstream_steps[ process_down ] ) == 0:
+                return False
+            if process_up in self.upstream_steps[ process_down ]:
+                return True
+            else:
+                for test_up in self.upstream_steps[ process_down ]:
+                    if _isupstream( test_up, process_up ):
+                        return True
+                return False
+
+        allprocs = list( self.upstream_steps.keys() )
+        sortedprocs = [ allprocs[0] ]
+        for proc in allprocs[1:]:
+            did = False
+            for dex in range( len(sortedprocs) ):
+                if _isupstream( proc, sortedprocs[dex] ):
+                    sortedprocs.insert( dex, proc )
+                    did = True
+                    break
+            if not did:
+                sortedprocs.append( proc )
+
+        return sortedprocs
+
+    @property
+    def sorted_provenances( self ):
+        """Get a list of provenances, sorted from upstream to downstream."""
+        return [ self[p] for p in self.sorted_processes ]
+
+
+    def append_provenance( self, prov, pgdb=None, noupstreams=None, processmap=None, nodb=False ):
+        """Recursively build a provenance tree.  Append the Provenance and all* of its upstreams.
+
+        * see parameter noupstreams
+
+        Tries to be smart when given a provenance that's already in the
+        tree, by checking that it's consistent with what's already there
+        and not adding it.
+
+        Parameters
+        ----------
+          prov: Provenance
+              The provenance to add to the provenance tree.
+
+          noupstreams: list of str, default None
+             Provenance from these processes (modified by processmap,
+             below) will *not* have their upstreams added to the
+             ProvenanceTree (or to self.upstream_steps).  If None, uses
+             the noupstreams given to the object constructor.
+
+          processmap: dict of str: str, default None
+             If a Provenance has a process that's a key in this
+             dictionary, then use the corresponding value as the key in
+             the ProvenanceTree (and in self.upstream_steps) rather than
+             the Provenanece's process.  If None, uses the processmap
+             that was given to the object constructor.
+
+          pgdb: PGDB, psycopg.connection, or psycopg.cursor; default None
+             Database connection.  If None, then database connectons
+             will be opened and closed as needed.
+
+          nodb: bool, default False
+             Mostly for debugging.  If this is True and the function
+             would contact the database, raise an exception.
+
+        """
+
+        noupstreams = noupstreams if noupstreams is not None else self._noupstreams
+        processmap = processmap if processmap is not None else self._processmap
+
+        process = processmap[prov.process] if prov.process in processmap else prov.process
+        if prov.process in noupstreams:
+            expected_upstreams = set()
+        else:
+            if nodb and ( prov._upstreams is None ):
+                raise RuntimeError( "nodb but contacting database" )
+            expected_upstreams = { processmap[p.process] if p.process in processmap else p.process
+                                   for p in prov.upstreams }
+
+        if process in self.keys():
+            if prov.id != self[process].id:
+                raise RuntimeError( f"Process {process} came up with inconsistent values "
+                                    f"when bulding the provenance tree!  Tried to add {prov.id}, "
+                                    f"but the provenance tree already had {self[process].id}." )
+            if process not in noupstreams:
+                found_upstreams = ( set() if process in noupstreams
+                                    else set( p.process if p.process not in processmap else processmap[p.process]
+                                              for p in prov.upstreams ) )
+                if found_upstreams != expected_upstreams:
+                    raise RuntimeError( f"Process {process} came up with inconsistent upstream "
+                                        f"steps when building the provenance tree!  "
+                                        f"Found: {found_upstreams}, expected: {expected_upstreams}" )
+        else:
+            useproc = processmap[process] if process in processmap else process
+            self[useproc] = prov
+            self.upstream_steps[useproc] = expected_upstreams
+
+        if process not in noupstreams:
+            for upprov in prov.upstreams:
+                self.append_provenance( upprov, noupstreams=noupstreams, processmap=processmap, pgdb=pgdb )
+
 
 
 class DataStore:
@@ -131,6 +253,7 @@ class DataStore:
     ]
 
     # these get cleared but not saved
+    # SORT OF.  Aligned stuff gets saved, but it's currently done ad-hoc
     products_to_clear = [
         'reference',
         'aligned_ref_image',
@@ -138,12 +261,6 @@ class DataStore:
         'aligned_ref_bg',
         'aligned_ref_psf',
         'aligned_ref_zp',
-        'aligned_new_image',
-        'aligned_new_sources'
-        'aligned_new_bg',
-        'aligned_new_psf',
-        'aligned_new_zp'
-        'aligned_wcs',
         '_sub_image',
         'reference',
         'exposure_id',
@@ -264,9 +381,7 @@ class DataStore:
             self._sources = None
             self._bg = None
             self._psf = None
-            self._wcs = None
-            self._zp = None
-            self.sub_image = None
+            self.wcs = None
         else:
             if self._image is None:
                 raise RuntimeError( "Can't set DataStore sources until it has an image." )
@@ -322,7 +437,7 @@ class DataStore:
     def wcs( self, val ):
         if val is None:
             self._wcs = None
-            self.sub_image = None
+            self.zp = None
         else:
             if self._sources is None:
                 raise RuntimeError( "Can't set DataStore wcs until it has a sources." )
@@ -339,6 +454,7 @@ class DataStore:
     def zp( self, val ):
         if val is None:
             self._zp = None
+            self.aligned_ref_image = None
             self.sub_image = None
         else:
             if self._sources is None:
@@ -395,6 +511,109 @@ class DataStore:
     @ref_zp.setter
     def ref_zp( self, val ):
         raise RuntimeError( "Don't directly set ref_zp, call get_reference" )
+
+    #####
+    # Aligned images are currently a special case, will be fixed in the massive
+    #   refactor in the "workflow" branch.
+    # Originally we didn't save these.  Now we do.  So, we have to make sure to
+    #   clear them if an upstream thing is cleared.  BUT, don't clear
+    #   sub_image when aligned_ref_* is cleared, even though that *should*
+    #   happen, because handling of aligned refs for saving is kind of ad hoc right now.
+
+    @property
+    def aligned_ref_image( self ):
+        return self._aligned_ref_image
+
+    @aligned_ref_image.setter
+    def aligned_ref_image( self, val ):
+        if val is None:
+            self._aligned_ref_image = None
+            self.aligned_ref_sources = None
+        else:
+            if not isinstance( val, Image ):
+                raise TypeError( f"DataStore.aligned_ref_image should be an Image, not a {type(val)}" )
+            self._aligned_ref_image = val
+            if ( self._aligned_ref_sources is not None ) and ( self._aligned_ref_sources.image_id != val.id ):
+                self.aligned_ref_sources = None
+
+    @property
+    def aligned_ref_sources( self ):
+        return self._aligned_ref_sources
+
+    @aligned_ref_sources.setter
+    def aligned_ref_sources( self, val ):
+        if val is None:
+            self._aligned_ref_sources = None
+            self._aligned_ref_bg = None
+            self._aligned_ref_psf = None
+            self.aligned_ref_wcs = None
+        else:
+            if self._aligned_ref_image is None:
+                raise RuntimeError( "Can't set DataStore aligned_ref_sources until it has an aligned_ref_image" )
+            if not isinstance( val, SourceList ):
+                raise TypeError( f"Datastore.aligned_ref_image should be a SourceList, not a {type(val)}" )
+            if ( ( ( self._aligned_ref_bg is not None ) and ( self._aligned_ref_bg.sources_id != val.id ) ) or
+                 ( ( self._aligned_ref_psf is not None ) and ( self._aligned_ref_psf.sources_id != val.id ) )
+                ):
+                raise ValueError( "Can't set a DataStore aligned_ref_sources inconsistent with other "
+                                  "existing attributes." )
+            self._aligned_ref_sources = val
+
+    @property
+    def aligned_ref_bg( self ):
+        return self._aligned_ref_bg
+
+    @aligned_ref_bg.setter
+    def aligned_ref_bg( self, val ):
+        if val is None:
+            self._aligned_ref_bg = None
+            self.aligned_ref_wcs = None
+        else:
+            if self._aligned_ref_sources is None:
+                raise RuntimeError( "Can't set a DataStore aligned_Ref_bg until it has an aligned_ref_sources" )
+            if not isinstance( val, Background ):
+                raise TypeError( f"Datastore.aligned_ref_bg must be a Background, not a {type(val)}" )
+            self._aligned_ref_bg = val
+            self._aligned_ref_bg.sources_id = self._aligned_ref_sources.id
+
+    @property
+    def aligned_ref_psf( self ):
+        return self._aligned_ref_psf
+
+    @aligned_ref_psf.setter
+    def aligned_ref_psf( self, val ):
+        if val is None:
+            self._aligned_ref_psf = None
+            self.aligned_ref_wcs = None
+        else:
+            if self._aligned_ref_sources is None:
+                raise RuntimeError( "Can't set a DataStore aligned_ref_psf until it has an aligned_ref_sources" )
+            if not isinstance( val, PSF ):
+                raise TypeError( f"Datastore.aligned_ref_psf must be a PSF, not a {type(val)}" )
+            self._aligned_ref_psf = val
+            self._aligned_ref_psf.sources_id = self._aligned_ref_sources.id
+
+
+    # aligned_ref_wcs and aligned_ref_zps are special cases because they are probably
+    #    just pointers to _wcs and _ref_zp, so don't do anything special here
+    @property
+    def aligned_ref_wcs( self ):
+        return self._aligned_ref_wcs
+
+    @aligned_ref_wcs.setter
+    def aligned_ref_wcs( self, val ):
+        self._aligned_ref_wcs = val
+
+    @property
+    def aligned_ref_zp( self ):
+        return self._aligned_ref_zp
+
+    @aligned_ref_zp.setter
+    def aligned_ref_zp( self, val ):
+        self._aligned_ref_zp = val
+
+    # End of aligned thingies
+    #####
 
     @property
     def sub_image( self ):
@@ -664,17 +883,11 @@ class DataStore:
 
         # these need to be added to the products_to_clear list
         self.reference = None
-        self.aligned_ref_image = None
-        self.aligned_ref_sources = None
-        self.aligned_ref_bg = None
-        self.aligned_ref_psf = None
-        self.aligned_ref_zp = None
-        self.aligned_new_image = None
-        self.aligned_new_sources = None
-        self.aligned_new_bg = None
-        self.aligned_new_psf = None
-        self.aligned_new_zp = None
-        self.aligned_wcs = None
+        self._aligned_ref_image = None
+        self._aligned_ref_sources = None
+        self._aligned_ref_bg = None
+        self._aligned_ref_psf = None
+        self._aligned_ref_zp = None
         self._sub_image = None  # subtracted image
         self._reference = None  # the Reference object needed to make subtractions
         self._exposure_id = None  # use this and section_id to find the raw image
@@ -721,6 +934,8 @@ class DataStore:
         WARNING.  It's easy to misuse this!  Make sure that the
         provenance tag you're loading is consistent with the provenance
         image or exposure used to initialize the database.
+
+        TODO: can this use ProvenanceTree.append_provenance?
 
         Parameters
         ----------
@@ -843,8 +1058,10 @@ class DataStore:
             self.prov_tree = ProvenanceTree( processprovdict, upstream_steps )
 
 
+
     def make_prov_tree( self, pars, steps=None, provtag=None, ok_no_ref_prov=False, upstream_steps=None,
                         starting_point=None, pgdb=None ):
+
         """Create the DataStore's provenance tree.
 
         Also creates provenances and saves them to the database if
@@ -1358,7 +1575,7 @@ class DataStore:
 
         return self._exposure
 
-    def get_image( self, provenance=None, reload=False, session=None ):
+    def get_image( self, provenance=None, reload=False, pgdb=None, session=None ):
         """Get the pre-processed (or coadded) image, either from memory or from the database.
 
         If the store is initialized with an image or an image_id, that
@@ -1390,10 +1607,10 @@ class DataStore:
             is available) or the exposure, section_id, and
             'preprocessing' provenance.
 
-        session: sqlalchemy.orm.session.Session
-            An optional session to use for the database query.  If not
-            given, will open a new session and close it when done with
-            it.
+          pgdb, session: PGDB, psycopg.Connection, psycopg.Cursor, or (shudder) SQLAlchemy session, default None
+            Database connection.  May make (and close) a new one if not
+            given.  Either argument can be used, but prefer pgdb.
+            session is ignored if both are given.
 
         Returns
         -------
@@ -1420,6 +1637,9 @@ class DataStore:
 
         # We don't have the image yet, try to get it based on exposure and section
 
+        _pgdb = pgdb if pgdb is not None else session
+        pgdb = None
+
         if provenance is None:
             if 'preprocessing' not in self.prov_tree:
                 raise RuntimeError( "Can't get an image without a provenance; there is no preprocessing "
@@ -1428,15 +1648,24 @@ class DataStore:
         elif ( self.prov_tree is not None ) and ( provenance.id != self.prov_tree['preprocessing'].id ):
             raise ValueError( "Passed image provenance doesn't match what's in the DataStore's provenance tree." )
 
-        with SmartSession( session ) as sess:
-            self.image = ( sess.query( Image )
-                           .filter( Image.exposure_id == self.exposure_id )
-                           .filter( Image.section_id == str(self.section_id) )
-                           .filter( Image.provenance_id == provenance._id )
-                          ).first()
+        with PGDB( _pgdb, dictcursor=True ) as pgdb:
+            q = ( sql.SQL( "SELECT * FROM images "
+                           "WHERE exposure_id={exp}"
+                           "  AND section_id={sec}"
+                           "  AND provenance_id={prov}" )
+                  .format( exp=self.exposure_id, sec=str(self.section_id), prov=provenance._id ) )
+            rows = pgdb.execute( q )
+            if len( rows ) == 0:
+                return None
+            elif len( rows ) > 1:
+                # This shouldn't happen because of a database unique constraint
+                raise RuntimeError( f"More than one image found with exposure={self.exposure_id}, "
+                                    f"section={self.secton_id}, and provenance={provenance._id}; "
+                                    f"this should never happen." )
+            else:
+                self.image = Image( **(rows[0]) )
+                return self.image
 
-        # Will return None if no image was found in the search
-        return self.image
 
     def _get_data_product( self,
                            att,
@@ -1449,6 +1678,7 @@ class DataStore:
                            match_prov=True,
                            provenance=None,
                            reload=False,
+                           pgdb=None,
                            session=None ):
         """Get a data product (e.g. sources, detections, etc.).
 
@@ -1464,6 +1694,9 @@ class DataStore:
         (potentially empty) list of objects if is_list is True.
 
         Also updates the self.{att} property.
+
+        WARNING: you can Bobby Tables the database by passing the wrong
+        thing in cls_upstream_id_att.  Don't do that.
 
         Parameters
         ----------
@@ -1506,8 +1739,10 @@ class DataStore:
             DataStore, and always reload it from the database using the
             parent products and the provenance.
 
-          session: SQLAlchemy session or None
-            If not passed, may make and close a sesion.
+          pgdb, session: PGDB, psycopg.Connection, psycopg.Cursor, or (shudder) SQLAlchemy session, default None
+            Database connection.  May make (and close) a new one if not
+            given.  Either argument can be used, but prefer pgdb.
+            session is ignored if both are given.
 
         """
         # First, see if we already have one
@@ -1523,6 +1758,9 @@ class DataStore:
 
         # If not, find it in the database
 
+        _pgdb = pgdb if pgdb is not None else session
+        pgdb = None
+
         if match_prov and ( provenance is None ):
             if ( self.prov_tree is None ) or ( process not in self.prov_tree ):
                 raise RuntimeError( f"DataStore: can't get {att}, no provenance, and provenance not in prov_tree" )
@@ -1530,7 +1768,7 @@ class DataStore:
 
         upstreamobj = getattr( self, upstream_att )
         if upstreamobj is None:
-            getattr( self, f'get_{upstream_att}' )( session=session )
+            getattr( self, f'get_{upstream_att}' )( pgdb=pgdb )
             upstreamobj = getattr( self, upstream_att )
         if upstreamobj is None:
             # It's not obvious to me if we should return None, or if we should
@@ -1541,19 +1779,23 @@ class DataStore:
             return None
 
         if not upstream_is_list:
-            with SmartSession( session ) as sess:
-                obj = sess.query( cls ).filter( cls_upstream_id_att == upstreamobj._id )
-                if ( match_prov ):
-                    obj = obj.filter( cls.provenance_id == provenance._id )
-                obj = obj.all()
-
-        else: # should only be scoring atm
+            q = ( sql.SQL( "SELECT * FROM {tab} WHERE {upat}={upval}" )
+                  .format( tab=sql.Identifier(cls.__tablename__),
+                           upat=sql.Identifier(cls_upstream_id_att.name),
+                           upval=upstreamobj._id ) )
+        else:
             upstream_ids = [obj.id for obj in upstreamobj]
-            with SmartSession( session ) as sess:
-                obj = sess.query( cls ).filter( cls_upstream_id_att.in_( upstream_ids ) )
-                if ( match_prov ):
-                    obj = obj.filter( cls.provenance_id == provenance._id )
-                obj = obj.all()
+            q = ( sql.SQL( "SELECT * FROM {tab} WHERE {upat}=ANY(ARRAY[{vals}])" )
+                  .format( tab=sql.Identifier(cls.__tablename__),
+                           upat=sql.Identifier(cls_upstream_id_att.name),
+                           vals=sql.SQL(',').join(upstream_ids) ) )
+
+        if match_prov:
+            q += sql.SQL( " AND provenance_id={provid}" ).format( provid=provenance._id )
+
+        with PGDB( _pgdb, dictcursor=True ) as pgdb:
+            rows = pgdb.execute( q )
+            obj = [ cls.create(**r) for r in rows ]
 
         if is_list:
             setattr( self, att, None if len(obj)==0 else list(obj) )
@@ -1569,7 +1811,7 @@ class DataStore:
 
 
 
-    def get_sources(self, provenance=None, reload=False, session=None):
+    def get_sources(self, provenance=None, reload=False, pgdb=None, session=None):
         """Get the source list, either from memory or from database.
 
         If there is already a sources will return that one, or raise an
@@ -1599,10 +1841,10 @@ class DataStore:
             sources from the databse using the image and the
             'extraction' provenance.
 
-        session: sqlalchemy.orm.session.Session
-            An optional session to use for the database query.  If not
-            given, will open a new session and close it at the end of
-            the function.
+        pgdb, session: PGDB, psycopg.Connection, psycopg.Cursor, or (shudder) SQLAlchemy session, default None
+            Database connection.  May make (and close) a new one if not
+            given.  Either argument can be used, but prefer pgdb.
+            session is ignored if both are given.
 
         Returns
         -------
@@ -1613,39 +1855,53 @@ class DataStore:
         """
 
         return self._get_data_product( "sources", SourceList, "image", SourceList.image_id, "extraction",
-                                       provenance=provenance, reload=reload, session=session )
+                                       provenance=provenance, reload=reload, pgdb=pgdb, session=session )
 
-    def get_psf(self, session=None, reload=False, provenance=None):
+    def get_psf(self, pgdb=None, session=None, reload=False, provenance=None):
         """Get a PSF, either from memory or from the database."""
         return self._get_data_product( 'psf', PSF, 'sources', PSF.sources_id, 'extraction',
-                                       match_prov=False, provenance=provenance, reload=reload, session=session )
+                                       match_prov=False, provenance=provenance, reload=reload,
+                                       pgdb=pgdb, session=session )
 
-    def get_background(self, session=None, reload=False):
+    def get_background(self, pgdb=None, session=None, reload=False):
         """Get a Background object, either from memory or from the database."""
         return self._get_data_product( 'bg', Background, 'sources', Background.sources_id, 'extraction',
-                                       match_prov=False, reload=reload, session=session )
+                                       match_prov=False, reload=reload,
+                                       pgdb=pgdb, session=session )
 
-    def get_wcs(self, session=None, reload=False, provenance=None):
+    def get_wcs(self, pgdb=None, session=None, reload=False, provenance=None):
         """Get an astrometric solution in the form of a WorldCoordinates object, from memory or from the database."""
         return self._get_data_product( 'wcs', WorldCoordinates, 'sources', WorldCoordinates.sources_id, 'astrocal',
-                                       match_prov=True, provenance=provenance, reload=reload, session=session )
+                                       match_prov=True, provenance=provenance, reload=reload,
+                                       pgdb=pgdb, session=session )
 
-    def get_zp(self, session=None, reload=False, provenance=None):
+    def get_zp(self, pgdb=None, session=None, reload=False, provenance=None):
         """Get a zeropoint as a ZeroPoint object, from memory or from the database."""
         return self._get_data_product( 'zp', ZeroPoint, 'wcs', ZeroPoint.wcs_id, 'photocal',
-                                       match_prov=True, provenance=provenance, reload=reload, session=session )
+                                       match_prov=True, provenance=provenance, reload=reload,
+                                       pgdb=pgdb, session=session )
 
 
     def get_reference(self,
                       search_by='image',
+                      ra=None,
+                      dec=None,
+                      target=None,
+                      section_id=None,
+                      filter=None,
+                      instrument=None,
+                      mjd0=None,
+                      mjd1=None,
                       provenances=None,
                       match_instrument=True,
                       match_filter=True,
                       min_overlap=0.85,
+                      max_dist=None,
                       skip_bad=True,
-                      reload=False,
                       multiple_ok=False,
-                      randomly_pick_if_multiple=False,
+                      choice_criteria=['overlap'],
+                      reload=False,
+                      pgdb=None,
                       session=None ):
         """Get the reference for this image.
 
@@ -1654,46 +1910,92 @@ class DataStore:
         Parameters
         ----------
         search_by: str, default 'image'
-            One of 'image', 'ra/dec', or 'target/section'.  If 'image',
-            will pass the DataStore's image to
-            Reference.get_references(), which will find references that
-            overlap the area of the image by at least min_overlap.  If
-            'ra/dec', will pass the central ra/dec of the image to
-            Reference.get_references(), and then post-filter them by
-            overlapfrac (if that is not None).  If 'target/section',
-            will pass target and section_id of the image to
-            Reference.get_references().  You almost always want to use
-            the default of 'image', unles you're working with a survey
-            that has very well-defined targets and the image headers are
-            always completely reliable; in that case, use
-            'target/section'.  'ra/dec' might be useful if you're doing
-            forced photometry and the image is a targeted image with the
-            target right at the center of the image (which is probably a
-            fairly contrived situation, though you may have created
-            subset images constructed that way).
+            One of 'image', 'ra/dec', or 'target/section'.
 
-        provenances: list of Provenance objects, or None
-            A list of provenances to use to identify a reference.  Any
-            found references must have one of these provenances.  If not
-            given, will try to get the provenances from the prov_tree
-            attribute.  If it can't find them there and provenance isn't
-            given, raise an exception.
+            If 'image', will pass the DataStore's image to
+            Reference.get_references(), which will find references that
+            overlap the area of the image by at least min_overlap.  This
+            is what you usually want to do for a discovery pipeline.
+
+            If 'ra/dec', will use ra and dec (if given) or the nominal
+            ra/dec of the image (if ra/dec is not given) to search for
+            references.  If min_overlap is not None, will then filter
+            out references that don't have at least that much overlap
+            with the DataStore's image.  (But, if you're working that
+            way, you sohuld just have done search_by='image'!)  If
+            max_dist is not None, will then filter out references whose
+            ra/dec is more than max_dist arcseconds away from ra/dec.
+            'ra/dec' is probably what you want to use when doing forced
+            photometry with the lightcurve pipeline.
+
+            If 'target/section'... don't do that.  Unless you know that
+            your survey has been extremely careful in putting exactly
+            the right things in all image headers, and you've been
+            careful to parse it out right.  (My experience is, relying
+            on a "target" field in the header to really tell you were
+            the telescope was looking is usually asking for trouble.)
+            In this case, it won't do any filtering at all, it will just
+            assume that the reference is right if it's for the right
+            target and section_id.
+
+        ra, dec : float, default None
+            The center ra and dec to search.  This is irrelevant if
+            search_by is not "ra/dec" and max_dist is None and
+            'distance' is not in choice_criteria.  If not given,
+            will use the ra and dec fields of the DataStore's image.
+
+        target, section_id : str, default None
+            The target and section_id to search for.  Irrelevant if
+            search_by is not 'target/section'.  If not given, will use
+            the fields from the DAtaStore's image.
+
+        filter : str, default None
+            The filter to find references for if not given and
+            not None, will use image.filter.
+
+        instrument : str, default None
+            If not given and image is not None, will use
+            self.image.instrument.  If not given and image is None,
+            and match_instrument is True, then it's impossible
+            to get a reference and there will be an exception.
+
+        mjd0, mjd1 : float, default None
+            The minimum and maximum mjd to use when looking at reference
+            validity dates.  Will find a reference whose validity_start
+            and validity_end include this range.
+
+        provenances: list of Provenance objects, list of UUID, or None
+            A list of provenances (or provenance ids) to use to identify
+            a reference.  Any found references must have one of these
+            provenances.  If not given, will try to get the provenances
+            from the prov_tree attribute.  If it can't find them there
+            and provenance isn't given, raise an exception.
 
         match_filter: bool, default True
             If True, only find a reference whose filter matches the
-            DataStore's image's filter.
+            DataStore's image's filter.  (...I am having a hard time
+            coming up with a legitimate use case for ever making this
+            False.)
 
         match_instrument: bool, default True
             If True, only find a refernce whose instrument matches the
-            Datastore's images' instrument.
+            Datastore's images' instrument.  (If you set this to False,
+            and are doing cross-instrument subtractions, then... well,
+            there's probably no hope for you.)
 
         min_overlap: float or None, default 0.85
             Area of overlap region must be at least this fraction of the
             area of the search image for the reference to be good.  Make
             this None to not consider overlap fraction when finding a
-            reference.  (Sort of; it will still return the one with the
-            higehst overlap, it's just it will return that one even if
-            the overlap is tiny.)
+            reference.
+
+        max_dist: float, default None
+            The maximum distance (in degrees) the ra/dec of the
+            reference can be from either the ra and dec arguments, or
+            from the Image's ra and dec (if the ra and dec arguments
+            aren't given).  It almost never makes sense to have both
+            this and min_overlap non-None, as they represent two
+            different ways of operating.
 
         skip_bad: bool, default True
             If True, will skip references that are marked as bad.
@@ -1706,62 +2008,101 @@ class DataStore:
             other criteria, it will just be returned.)
 
         multiple_ok: bool, default False
-            Ignored for 'ra/dec' and 'target/section' search, or if
-            min_overlap is None or <=0.  For 'image' search, normally,
-            if more the one matching reference is found, it will return
-            an error.  If this is True, then it will pick the reference
-            with the highest overlap (depending on
-            randomly_pick_if_multiple).
+            If multiple references that match the criteria are found and
+            this is False, raise an exception.  Otherwise, use
+            choice_criteria to decide which one to return.  You probably
+            want this False for search_by='image' (at least, if your
+            survey is working on a grid and you've been diligent about
+            not making references willy-nilly). You almost always want
+            this True for search_by='ra/dec'.  You probably want it false
+            for 'target/section'.
 
-        randomly_pick_if_multiple: bool, default False
-            Normally, if there multiple references with exactly the same
-            maximum overlap fraction with the DataStore's image (which
-            should be _very_ rare), an exception will be raised.  If
-            randomly_pick_if_multiple is True, the code will not raise
-            an exception, and will just return whichever one the
-            database and code happend to sort first (which is
-            non-deterministic).
+        choice_criteria: list of str, default ['overlap']
+            A sorted list of criteria to be used when choosing between multiple
+            multiple references.  Ignored if multiple_ok is false.  Values can include:
+               overlap : choose the reference with the maximum overlap with the supplied image/region
+               distance : choose the reference whose nominal ra/dec is closest to the
+                 ra/dec either given or from the image
+               unconstrained : "randomly" pick one.  Not really... will just return
+                 whichever reference the database and code put first in the list.
+                 You always want this to be the lasdt thing in choice_criteria, if
+                 you include it at all.
+            If after applying all criteria there is still more than one reference, an
+            exception will be raised.  (This should never happen if 'unconstrained'
+            is in choice_criteria.)
 
-        session: sqlalchemy.orm.session.Session or SmartSession
-            An optional session to use for the database query.  If not
-            given, then functions called by this function will open and
-            close sessions as necessary.
+        pgdb, session: PGDB, pscyopg.Connection, psycopg.Cursor, or (shudder) sqlalchemy.orm.session.Session
+            An optional datbase connection.  (Either argument works; if both
+            are specified, it uses pgdb and ignores session.)  If not
+            given, a new database connection will be opened and closed
+            in this function.
 
         Returns
         -------
         ref: Image object
             The reference image for this image, or None if no reference is found.
 
-        Behavior when more than one reference is found:
-
-        * For search_by='image':
-            * If multiple_ok=True or min_overlap is None or <=0, return
-              the reference with the highest overlap fraction with the
-              DataStore's image.
-
-            * If multiple_ok=False and min_overlap is positive, raise an
-              exception.
-
-        * Otherwise:
-            * Return the refrence with the highest overlap fraction with
-              the DataStore's image.
-
-        * Special case for both of the above: if there are multiple
-          images and, by unlikely chance, there are more than one that
-          have exactly the same highest overlap fraction, then raise an
-          exception if randomly_pick_if_multiple is False, otherwise
-          pick whichever one the database and code happened to sort
-          first.
+            [ I THINK THIS IS WRONG. ]
 
         """
+
+        _pgdb = pgdb if pgdb is not None else session
 
         if reload:
             self.reference = None
             self.sub_image = None
 
-        image = self.get_image(session=session)
-        if image is None:
-            return None  # cannot find a reference without a new image to match
+        # If we need it, make sure the image is loaded
+        if any( [ search_by == 'image',
+                  ra is None,
+                  dec is None,
+                  ( filter is None ) and match_filter,
+                  ( instrument is None ) and match_instrument,
+                  ( min_overlap is not None ) and ( min_overlap > 0.),
+                  mjd0 is None,
+                  mjd1 is None,
+                  'overlap' in choice_criteria,
+                  'overlap_frac' in choice_criteria,
+                  'overlap_fraction' in choice_criteria,
+                  'overlapfrac' in choice_criteria,
+                  'overlapfratcion' in choice_criteria,
+                  ( search_by == 'target/section' ) and ( ( target is None ) or ( section_id is None ) ),
+                 ] ):
+            self.get_image( pgdb=_pgdb )
+            if self.image is None:
+                raise RuntimeError( "Couldn't find datastore image and we need it" )
+
+        # If we need it, try to load the wcs.  In this case, if it's None, shrug and move on
+        if any( [ ( min_overlap is not None ) and ( min_overlap > 0. ),
+                  'overlap' in choice_criteria,
+                  'overlap_frac' in choice_criteria,
+                  'overlap_fraction' in choice_criteria,
+                  'overlapfrac' in choice_criteria,
+                  'overlapfratcion' in choice_criteria,
+                 ] ):
+            self.get_wcs( pgdb=_pgdb )
+
+        if self.image is not None:
+            ra = ra if ra is not None else self.image.ra
+            dec = dec if dec is not None else self.image.dec
+            instrument = instrument if instrument is not None else self.image.instrument
+            mjd0 = mjd0 if mjd0 is not None else self.image.mjd
+            mjd1 = mjd1 if mjd1 is not None else self.image.mjd
+            # TODO: think about instrument canonical filter names
+            filter = filter if filter is not None else self.image.filter
+            target = target if target is not None else self.image.target
+            section_id = section_id if section_id is not None else self.image.section_id
+
+        if not ( ( ( search_by == 'image' ) and ( self.image is not None ) )
+                 or
+                 ( ( search_by == 'ra/dec' ) and ( ra is not None ) and ( dec is not None ) )
+                 or
+                 ( ( search_by == 'target/section' ) and ( target is not None ) and ( section_id is not None ) )
+                ):
+            raise ValueError( "Not enough information given to find a reference." )
+
+        if match_filter and ( filter is None ):
+            raise ValueError( "match_filter is true, but neither a filter or an image was passed" )
 
         if provenances is None:  # try to get it from the prov_tree
             if ( self.prov_tree is not None ) and ( 'referencing' in self.prov_tree ):
@@ -1772,7 +2113,7 @@ class DataStore:
         if ( provenances is None ) or ( len(provenances) == 0 ):
             raise RuntimeError( "DataStore can't get a reference, no provenances to search" )
 
-        provenance_ids = [ p.id for p in provenances ]
+        provenance_ids = [ p.id if isinstance(p, Provenance) else p for p in provenances ]
 
         # first, some checks to see if existing reference is ok
         if self.reference is not None:
@@ -1782,26 +2123,26 @@ class DataStore:
             elif skip_bad and ( self.reference.bitflag != 0 ):
                 self.reference = None
 
-            elif match_filter and self.reference.image.filter != image.filter:
+            elif match_filter and self.reference.image.filter != filter:
                 self.reference = None
 
-            elif match_instrument and self.reference.image.instrument != image.instrument:
+            elif match_instrument and self.reference.image.instrument != instrument:
                 self.reference = None
 
             elif ( ( search_by in [ 'target/section', 'target/section_id' ] ) and
-                   ( ( self.reference.imagetarget != image.target ) or
-                     ( self.reference.imagesection_id != image.section_id ) )
+                   ( ( self.reference.imagetarget != target ) or
+                     ( self.reference.imagesection_id != section_id ) )
                   ):
                 self.reference = None
 
             elif ( ( self.reference.validity_start is not None ) and
-                   ( pytz.utc.localize( astropy.time.Time(self.image.mjd, format='mjd').datetime )
-                     < self.reference.validity_start )
+                   ( pytz.utc.localize( astropy.time.Time(min(mjd0, mjd1), format='mjd').datetime )
+                       < self.reference.validity_start )
                   ):
                 self.reference = None
 
             elif ( ( self.reference.validity_end is not None ) and
-                   ( pytz.utc.localize( astropy.time.Time(self.image.mjd, format='mjd').datetime )
+                   ( pytz.utc.localize( astropy.time.Time(max(mjd0, mjd1), format='mjd').datetime )
                      > self.reference.validity_end )
                   ):
                 self.reference = None
@@ -1809,10 +2150,10 @@ class DataStore:
             elif ( min_overlap is not None ) and ( min_overlap > 0 ):
                 # Make sure this one is last since it has an if inside it!
                 SCLogger.warning( "I think this next line of code needs to be rethought given good sections!" )
-                ovfrac = FourCorners.get_overlap_frac(image, self.reference.image)
+                ovfrac = ( self.wcs.get_overlap_frac( self.wcs, self.reference.wcs ) if self.wcs is not None
+                           else self.image.get_overlap_frac( self.image, self.reference.image ) )
                 if ovfrac < min_overlap:
                     self.reference = None
-
 
             # if we have survived this long without losing the reference, can return it here:
             if self.reference is not None:
@@ -1826,20 +2167,25 @@ class DataStore:
 
         arguments = {}
         if search_by == 'image':
-            arguments['image'] = image
+            arguments['image'] = self.image
             arguments['overlapfrac'] = min_overlap
         elif search_by == 'ra/dec':
-            arguments['ra'] = image.ra
-            arguments['dec'] = image.dec
+            arguments['ra'] = ra
+            arguments['dec'] = dec
         elif search_by in [ 'target/section', 'target/section_id' ]:
-            arguments['target'] = image.target
-            arguments['section_id'] = image.section_id
+            arguments['target'] = target
+            arguments['section_id'] = section_id
+
+        if ( mjd0 is not None ) or ( mjd1 is not None ):
+            arguments['mjds'] = ( [ mjd0, mjd1 ] if ( mjd0 is not None ) and ( mjd1 is not None )
+                                  else [ mjd0 ] if mjd0 is not None
+                                  else [ mjd1 ] )
 
         if match_filter:
-            arguments['filter'] = image.filter
+            arguments['filter'] = filter
 
         if match_instrument:
-            arguments['instrument'] = image.instrument
+            arguments['instrument'] = instrument
 
         if skip_bad:
             arguments['skip_bad'] = True
@@ -1848,98 +2194,72 @@ class DataStore:
 
         # SCLogger.debug( f"DataStore calling Reference.get_references with arguments={arguments}" )
 
-        refs, imgs = Reference.get_references( **arguments, session=session )
+        refs, imgs = Reference.get_references( **arguments, pgdb=_pgdb )
+
+        if ( search_by != 'image' ) and ( min_overlap is not None ) and ( min_overlap > 0 ):
+            # Didn't filter by overlap fraction previously, so do that here
+            ovfrac = [ ( self.wcs.get_overlap_frac( self.wcs, r.wcs ) if self.wcs is not None
+                         else self.image.get_overlap_frac( self.image, i ) )
+                       for r, i in zip( refs, imgs ) ]
+            refs = [ r for o, r in zip(ovfrac, refs) if o >= min_overlap ]
+            imgs = [ i for o, i in zip(ovfrac, imgs) if o >= min_overlap ]
+
+        if ( max_dist is not None ) and ( max_dist > 0 ):
+            # Throw out things whose ra/dec is too far from (ra, dec)
+            dist = [ np.sqrt( ( (ra - i.ra) * np.cos(dec * np.pi/180.) ) ** 2 + (dec - i.dec)**2 ) for i in imgs ]
+            refs = [ r for d, r in zip(dist, refs) if d <= max_dist ]
+            imgs = [ i for d, i in zip(dist, imgs) if d <= max_dist ]
+
         if len(refs) == 0:
-            # SCLogger.debug( f"DataStore: Reference.get_references returned nothing." )
+            # SCLogger.debug( f"Datastore: Reference.get_reference returned nothing." )
             self.reference = None
             return None
 
         elif len(refs) == 1:
             # One reference found.  Return it if it's OK.
             self.reference = refs[0]
-
-            # For image search, Reference.get_references() will
-            #  already have filtered by min_overlap if relevant.
-            if search_by != 'image':
-                SCLogger.warning( "I think this next line needs to be rethought given 'good' sections" )
-                if ( ( min_overlap is not None ) and
-                     ( min_overlap > 0 ) and
-                     ( FourCorners.get_overlap_frac( image, imgs[0] ) < min_overlap )
-                    ):
-                    self.reference = None
-
             return self.reference
 
         else:
             # Multiple references found; deal with it.
+            if not multiple_ok:
+                raise RuntimeError( "Found more than one reference that matched, and multiple_ok is False." )
 
-            # Sort references by overlap fraction descending
-            SCLogger.warning( "I think this next line needs to be rethought given 'good' sections" )
-            ovfrac = [ FourCorners.get_overlap_frac( image, i ) for i in imgs ]
-            sortdex = list( range( len(refs) ) )
-            sortdex.sort( key=lambda x: -ovfrac[x] )
+            # Sort by criterea, allowing for duplicates
+            for cdex, criterion in enumerate( choice_criteria ):
+                if criterion in ( 'overlap', 'overlap_frac', 'overlap_fraction', 'overlapfrac', 'overlapfraction' ):
+                    ovfrac = np.array( [ ( self.wcs.get_overlap_frac( self.wcs, r.wcs ) if self.wcs is not None
+                                           else self.image.get_overlap_frac( self.image, i ) )
+                                         for r, i in zip( refs, imgs ) ] )
+                    maxdex = np.argmax( ovfrac )
+                    refs = [ refs[i] for i, o in enumerate(ovfrac) if o == ovfrac[maxdex] ]
+                    imgs = [ imgs[i] for i, o in enumerate(ovfrac) if o == ovfrac[maxdex] ]
 
-            if search_by == 'image':
-                # For image search, raise an exception if multiple_ok is
-                #   False, as Reference.get_references() will already
-                #   have thrown out things with ovfrac < min_overlap.
-                #   If multiple_ok is True, or if we didn't give a
-                #   min_overlap, then return the one with the highest
-                #   overlap, except in the
-                #   randomly_pick_if_multiple=False edge case.
-                if ( not multiple_ok ) and ( min_overlap is not None ) and ( min_overlap > 0 ):
-                    self.reference = None
-                    strio = io.StringIO()
-                    strio.write( f"More than one reference overlapped the image by at least {min_overlap}:\n" )
-                    for oopsi in sortdex:
-                        strio.write( f"  {ovfrac[oopsi]:.2f} : ref {refs[oopsi]._id}  img {imgs[oopsi].filepath}\n" )
-                    raise RuntimeError( strio.getvalue() )
+                elif criterion in ( 'dist', 'distance') :
+                    dist = np.array( [ np.sqrt( ( ( ra - i.ra ) * np.cos( dec * np.pi/180. ) )**2
+                                                + ( dec - i.dec ) **2 )
+                                       for i in imgs ] )
+                    mindex = np.argmin( dist )
+                    refs = [ refs[i] for i, d in enumerate(dist) if d == dist[mindex] ]
+                    imgs = [ imgs[i] for i, d in enumerate(dist) if d == dist[mindex] ]
 
-                if ( not randomly_pick_if_multiple ) and ( ovfrac[sortdex[0]] == ovfrac[sortdex[1]] ):
-                    self.reference = None
-                    raise RuntimeError( f"More than one reference had exactly the same overlap of "
-                                        f"{ovfrac[sortdex[0]]}" )
+                elif criterion == 'unconstrained':
+                    if cdex != len(choice_criteria) - 1:
+                        raise RuntimeError( "You have 'unconstrained' in choice_criteria, but it's not last!" )
+                    refs = [ refs[0] ]
+                    imgs = [ imgs[0] ]
 
-                self.reference = refs[ sortdex[0] ]
-                return self.reference
-
-            else:
-                # For ra/dec or target/section search,
-                # References.get_reference() will not have filtered by
-                # min_overlap, so do that here.
-                if ( min_overlap is not None ) and ( min_overlap > 0 ):
-                    sortdex = [ s for s in sortdex if ovfrac[s] >= min_overlap ]
-                    if len(sortdex) == 0:
-                        self.reference = None
-                        return self.reference
-                    # Edge case
-                    if ( ( len(sortdex) > 1 ) and
-                         ( not randomly_pick_if_multiple ) and
-                         ( ovfrac[sortdex[0]] == ovfrac[sortdex[1]] )
-                        ):
-                        self.reference = None
-                        raise RuntimeError( f"More than one reference had exactly the same overlap of "
-                                            f"{ovfrac[sortdex[0]]}" )
-                    # Return the one with highest overlap
-                    self.reference = refs[ sortdex[0] ]
-                    return self.reference
                 else:
-                    # We can just return the one with highest overlap, even if it's tiny, because we
-                    #   didn't ask to filter on min_overlap, except in the edge case
-                    if ( ( len(sortdex) > 1 ) and
-                         ( not randomly_pick_if_multiple ) and
-                         ( ovfrac[sortdex[0]] == ovfrac[sortdex[1]] )
-                        ):
-                        self.reference = None
-                        raise RuntimeError( f"More than one reference had exactly the same overlap of "
-                                            f"{ovfrac[sortdex[0]]}" )
-                    self.reference = refs[ sortdex[0] ]
-                    return self.reference
+                    raise ValueError( f'Unknown reference choice criterion "{criterion}"' )
 
-        raise RuntimeError( "The code should never get to this line." )
+            if len(refs) > 1:
+                raise RuntimeError( "Multiple references match even after applying choice_criteria" )
+
+            self.reference = refs[0]
+            return self.reference
 
 
-    def get_sub_image(self, provenance=None, reload=False, session=None):
+    def get_sub_image(self, provenance=None, reload=False, pgdb=None, session=None):
         """Get a subtraction Image, either from memory or from database.
 
         If sub_image is not None, return that.  Otherwise, if
@@ -1962,10 +2282,7 @@ class DataStore:
         reload: bool, default False
             Set .sub_image to None, and always try to reload from the database.
 
-        session: sqlalchemy.orm.session.Session
-            An optional session to use for the database query.  If not
-            given, will open a new session and close it at the end of
-            the function.
+        pgdb, session : ROB WRITE DOCS
 
         Returns
         -------
@@ -2001,48 +2318,50 @@ class DataStore:
             #   get_reference() that it's safer to make the user do it
             raise RuntimeError( "Can't get a subtraction without a reference; try calling get_reference" )
 
-        with SmartSession( session ) as sess:
+        with PGDB( pgdb if pgdb is not None else session, dictcursor=True ) as pgdb:
             if self.image_id is None:
-                self.get_image( session=sess )
+                self.get_image( pgdb=pgdb )
             if self.image_id is None:
                 raise RuntimeError( "Can't get sub_image, don't have an image_id" )
 
-            imgs = ( sess.query( Image )
-                     .join( image_subtraction_components, Image._id==image_subtraction_components.c.image_id )
-                     .filter( Image.provenance_id==provenance.id )
-                     .filter( image_subtraction_components.c.new_zp_id==self.zp.id )
-                     .filter( image_subtraction_components.c.ref_id==self.reference.id )
-                     .filter( Image.is_sub ) ).all()
-            if len(imgs) > 1:
+            q = ( sql.SQL( "SELECT i.* FROM images i "
+                           "INNER JOIN image_subtraction_components c ON c.image_id=i._id "
+                           "WHERE i.provenance_id={prov} "
+                           "  AND c.new_zp_id={zpid} "
+                           "  AND c.ref_id={refid} "
+                           "  AND i.is_sub"
+                          ).format( prov=provenance.id, zpid=self.zp.id, refid=self.reference.id ) )
+            rows = pgdb.execute( q )
+            if len(rows) > 1:
                 raise RuntimeError( "Found more than one matching sub_image in the database!  This shouldn't happen!" )
-            if len(imgs) == 0:
+            if len(rows) == 0:
                 self.sub_image = None
             else:
-                self.sub_image = imgs[0]
+                self.sub_image = Image( **(rows[0]) )
 
         return self.sub_image
 
-    def get_detections(self, provenance=None, reload=False, session=None):
+    def get_detections(self, provenance=None, reload=False, pgdb=None, session=None):
         """Get a SourceList for sources from the subtraction image, from memory or from database."""
         return self._get_data_product( "detections", SourceList, "sub_image", SourceList.image_id, "detection",
-                                       provenance=provenance, reload=reload, session=session )
+                                       provenance=provenance, reload=reload, pgdb=pgdb, session=session )
 
-    def get_cutouts(self, provenance=None, reload=False, session=None):
+    def get_cutouts(self, provenance=None, reload=False, pgdb=None, session=None):
         """Get a list of Cutouts, either from memory or from database."""
         return self._get_data_product( "cutouts", Cutouts, "detections", Cutouts.sources_id, "cutting",
-                                       provenance=provenance, reload=reload, session=session )
+                                       provenance=provenance, reload=reload, pgdb=pgdb, session=session )
 
-    def get_measurement_set( self, provenance=None, reload=False, session=None ):
+    def get_measurement_set( self, provenance=None, reload=False, pgdb=None, session=None ):
         """Get the MeasurementsSet, either form memory, or from database."""
         return self._get_data_product( "measurement_set", MeasurementSet, "cutouts", MeasurementSet.cutouts_id,
                                        "measuring", is_list=False, provenance=provenance, reload=reload,
-                                       session=session  )
+                                       pgdb=pgdb, session=session  )
 
-    def get_deepscore_set( self, provenance=None, reload=False, session=None ):
+    def get_deepscore_set( self, provenance=None, reload=False, pgdb=None, session=None ):
         """Get the DeepScore set, either from memory or from the database."""
         return self._get_data_product( "deepscore_set", DeepScoreSet, "measurement_set",
                                        DeepScoreSet.measurementset_id, "scoring", is_list=False,
-                                       provenance=provenance, reload=reload, session=session )
+                                       provenance=provenance, reload=reload, pgdb=pgdb, session=session )
 
     def get_deepscores(self, provenance=None, reload=False, session=None):
         """Get a list of DeepScores, either from memory or from database.
@@ -2052,11 +2371,12 @@ class DataStore:
         """
         return self.get_deepscore_set( self, provenance=provenance, reload=reload, session=session ).deepscores
 
-    def get_fakes( self, provenance=None, reload=False, session=None ):
+    def get_fakes( self, provenance=None, reload=False, pgdb=None, session=None ):
         """Get a FakeSet"""
 
         return self._get_data_product( "fakes", FakeSet, "zp", FakeSet.zp_id, "fakeinjection",
-                                       match_prov=True, provenance=provenance, reload=reload, session=session )
+                                       match_prov=True, provenance=provenance, reload=reload,
+                                       pgdb=pgdb, session=session )
 
 
     def get_fakeanal( self, orig_deepscore_set_id, reload=False, session=None ):
@@ -2164,6 +2484,7 @@ class DataStore:
                         exists_ok=False,
                         overwrite=True,
                         no_archive=False,
+                        save_warped_ref=False,
                         update_image_header=False,
                         update_image_record=True,
                         force_save_everything=False ):
@@ -2222,6 +2543,10 @@ class DataStore:
             If True, will not push files up to the archive, will only
             save on local disk.
 
+        save_warped_ref: bool, default False
+            If True, save the aligned reference image, sources, wcs, and
+            zeropoint to the database.
+
         update_image_header: bool, default False
             See above.  If this is true, then the if there is an Image
             object in the data store, its "image" component will be
@@ -2242,10 +2567,65 @@ class DataStore:
             testing purposes.
 
         """
+
+        products_to_save = self.products_to_save.copy()
+        if save_warped_ref:
+            products_to_save.extend( [ 'aligned_ref_image', 'aligned_ref_sources',
+                                       'aligned_ref_bg', 'aligned_ref_psf' ] )
+
+        # Figure out what is already in the database.
+        # NOTE: we're making the assumption that if measurement_set is
+        #   in the database, then all the associated meaurements are
+        #   too.  Likewise for deepscore_set.
+        already_in_db = set()
+        with PGDB() as pgdb:
+            # ...while we're here, make sure the warped provenances are in the database
+            if save_warped_ref and hasattr( self, 'aligned_ref_image' ) and ( self.aligned_ref_image is not None ):
+                for prov in [ self.warped_provs['warped'],
+                              self.warped_provs['notwarped'],
+                              self.warped_provs['sources'] ]:
+                    prov.insert_if_needed( pgdb=pgdb )
+            for att in products_to_save:
+                obj = getattr( self, att, None )
+                if obj is None:
+                    continue
+
+                if isinstance( obj, FileOnDiskMixin ):
+                    q = ( sql.SQL( "SELECT _id FROM {table} WHERE filepath={filepath}")
+                          .format( table=sql.Identifier(obj.__tablename__), filepath=obj.filepath ) )
+                    rows, _cols = pgdb.execute( q )
+                    if len(rows) > 1:
+                        raise RuntimeError( f"Database corruption, there is more than one row in "
+                                            f"{obj.__tablename__} with filepath {obj.filepath}.  "
+                                            f"This should never happen." )
+                    if len(rows) == 1:
+                        if rows[0][0] != obj.id:
+                            raise ValueError( f"datastore.{att} has id {obj.id}, but the same filepath "
+                                              f"in the database has id {rows[0][0]}" )
+                        already_in_db.add( att )
+                else:
+                    # WORRY.  If the object wasn't read from the database, then it will make a new
+                    #   id here... but I don't that should ever happen, we always try to read from
+                    #   the database, so, maybe don't worry.
+                    q = ( sql.SQL( "SELECT _id FROM {table} WHERE _id={objid}" )
+                          .format( table=sql.Identifier(obj.__tablename__), objid=obj.id ) )
+                    rows, _cols = pgdb.execute( q )
+                    if len(rows) == 1:
+                        # This is _id, it's the primary key, I'm not going to bother checking for >1
+                        already_in_db.add( att )
+
         # save to disk whatever is FileOnDiskMixin
-        for att in self.products_to_save:
+        # Do NOT do this within the "with PGDB()" above, because this saving could take a while,
+        #   and we don't want to hold the database connection open during all that time.
+        for att in products_to_save:
             obj = getattr(self, att, None)
             if obj is None:
+                continue
+
+            if ( ( att in already_in_db )
+                 and not ( isinstance( obj, Image ) and update_image_header )
+                ):
+                SCLogger.debug( f"DataStore: {att} is already in the database, not trying to save it." )
                 continue
 
             strio = io.StringIO()
@@ -2292,8 +2672,12 @@ class DataStore:
                         # Various things need other things to invent their filepath
                         if att in [ "psf", "bg" ]:
                             obj.save( image=self.image, sources=self.sources, **basicargs )
+                        elif att in [ "aligned_ref_psf", "aligned_ref_bg" ]:
+                            obj.save( image=self.aligned_ref_image, sources=self.aligned_ref_sources, **basicargs )
                         elif att in [ "sources", "wcs" ]:
                             obj.save( image=self.image, **basicargs )
+                        elif att == "aligned_ref_sources":
+                            obj.save( image=self.aligned_ref_image, **basicargs )
                         elif att == "detections":
                             obj.save( image=self.sub_image, **basicargs )
                         elif att == "cutouts":
@@ -2314,139 +2698,175 @@ class DataStore:
 
         commits = []
 
-        # Exposure
-        # THINK.  Should we actually upsert this?
-        # Almost certainly it hasn't changed, and
-        # it was probably already in the database
-        # anyway.
-        if self.exposure is not None:
-            SCLogger.debug( "save_and_commit upserting exposure" )
-            self.exposure.upsert( load_defaults=True )
-            # commits.append( 'exposure' )
-            # exposure isn't in the commit bitflag
+        with PGDB() as pgdb:
+            # Exposure
+            # Almost certainly already in the database.
+            if ( self.exposure is not None ) and ( 'exposure' not in already_in_db ):
+                SCLogger.debug( "save_and_commit inserting exposure" )
+                self.exposure.insert( load_defaults=True, pgdb=pgdb, nocommit=True )
+                # commits.append( 'exposure' )
+                # exposure isn't in the commit bitflag
 
-        # Image
-        if self.image is not None:
-            if self.exposure is not None:
-                self.image.exposure_id = self.exposure.id
-            SCLogger.debug( "save_and_commit upserting image" )
-            self.image.upsert( load_defaults=True )
-            commits.append( 'image' )
-
-        # SourceList
-        if self.sources is not None:
+            # Image
             if self.image is not None:
-                self.sources.image_id = self.image.id
-            SCLogger.debug( "save_and_commit upserting sources" )
-            self.sources.upsert( load_defaults=True )
-            commits.append( 'sources' )
+                # Image is more complicated.  Because we have a few things that get set after
+                #   insertion (fvwm_estimate, lim_mag_estimate, etc.), we have to upsert
+                #   the image sometimes.
+                if any( att not in already_in_db for att in [ 'image', 'sources', 'psf', 'bg', 'wcs', 'zp' ] ):
+                    if self.exposure is not None:
+                        self.image.exposure_id = self.exposure.id
+                    SCLogger.debug( "save_and_commit upserting image" )
+                    self.image.upsert( load_defaults=True, pgdb=pgdb, nocommit=True )
+                    commits.append( 'image' )
 
-        # psf
-        if self.psf is not None:
-            if self.sources is not None:
-                self.psf.sources_id = self.sources.id
-            SCLogger.debug( "save_and_commit upserting psf" )
-            self.psf.upsert( load_defaults=True )
-            commits.append( 'psf' )
+            # SourceList
+            if ( self.sources is not None ) and ( 'sources' not in already_in_db ):
+                if self.image is not None:
+                    self.sources.image_id = self.image.id
+                SCLogger.debug( "save_and_commit inserting sources" )
+                self.sources.insert( load_defaults=True, pgdb=pgdb, nocommit=True )
+                commits.append( 'sources' )
 
-        # bg
-        if self.bg is not None:
-            if self.sources is not None:
-                self.bg.sources_id = self.sources.id
-            SCLogger.debug( "save_and_commit upsertting bg" )
-            self.bg.upsert( load_defaults=True )
-            commits.append( 'bg' )
+            # psf
+            if ( self.psf is not None ) and ( 'psf' not in already_in_db ):
+                if self.sources is not None:
+                    self.psf.sources_id = self.sources.id
+                SCLogger.debug( "save_and_commit inserting psf" )
+                self.psf.insert( load_defaults=True, pgdb=pgdb, nocommit=True )
+                commits.append( 'psf' )
 
-        # wcs
-        if self.wcs is not None:
-            if self.sources is not None:
-                self.wcs.sources_id = self.sources.id
-            SCLogger.debug( "save_and_commit upserting wcs" )
-            self.wcs.upsert( load_defaults=True )
-            commits.append( 'wcs' )
+            # bg
+            if ( self.bg is not None ) and ( 'bg' not in already_in_db ):
+                if self.sources is not None:
+                    self.bg.sources_id = self.sources.id
+                SCLogger.debug( "save_and_commit insertting bg" )
+                self.bg.insert( load_defaults=True, pgdb=pgdb, nocommit=True )
+                commits.append( 'bg' )
 
-        # zp
-        if self.zp is not None:
-            if self.wcs is not None:
-                self.zp.wcs_id = self.wcs.id
-            if self.bg is not None:
-                self.zp.background_id = self.bg.id
-            SCLogger.debug( "save_and_commit upsertting zp" )
-            self.zp.upsert( load_defaults=True )
-            commits.append( 'zp' )
+            # wcs
+            if ( self.wcs is not None ) and ( 'wcs' not in already_in_db ):
+                if self.sources is not None:
+                    self.wcs.sources_id = self.sources.id
+                SCLogger.debug( "save_and_commit inserting wcs" )
+                self.wcs.insert( load_defaults=True, pgdb=pgdb, nocommit=True )
+                commits.append( 'wcs' )
 
-        # subtraction Image
-        if self.sub_image is not None:
-            self.sub_image.upsert( load_defaults=True )
-            SCLogger.debug( "save_and_commit upserting sub_image" )
-            commits.append( 'sub_image' )
+            # zp
+            if ( self.zp is not None ) and ( 'zp' not in already_in_db ):
+                if self.wcs is not None:
+                    self.zp.wcs_id = self.wcs.id
+                if self.bg is not None:
+                    self.zp.background_id = self.bg.id
+                SCLogger.debug( "save_and_commit insertting zp" )
+                self.zp.insert( load_defaults=True, pgdb=pgdb, nocommit=True )
+                commits.append( 'zp' )
 
-        # detections
-        if self.detections is not None:
-            if self.sub_image is not None:
-                self.detections.image_id = self.sub_image.id
-            SCLogger.debug( "save_and_commit detections" )
-            self.detections.upsert( load_defaults=True )
-            commits.append( 'detections' )
+            # warped image
+            if ( save_warped_ref and ( self.aligned_ref_image is not None ) and
+                 ( 'aligned_ref_image' not in already_in_db )
+                ):
+                SCLogger.debug( "save_and_commit inserting aligned_ref_image" )
+                self.aligned_ref_image.insert( load_defaults=True, pgdb=pgdb, nocommit=True )
 
-        # cutouts
-        if self.cutouts is not None:
-            if self.detections is not None:
-                self.cutouts.detections_id = self.detections.id
-            SCLogger.debug( "save_and_commit upserting cutouts" )
-            self.cutouts.upsert( load_defaults=True )
-            commits.append( 'cutouts' )
+            # warped sources
+            if ( save_warped_ref and ( self.aligned_ref_sources is not None ) and
+                 ( 'aligned_ref_sources' not in already_in_db )
+                ):
+                SCLogger.debug( "save_and_commit inserting aligned_ref_sources" )
+                self.aligned_ref_sources.insert( load_defaults=True, pgdb=pgdb, nocommit=True )
 
-        # measurements
-        if self.measurement_set is not None:
-            if self.cutouts is not None:
-                self.measurement_set.cutouts_id = self.cutouts.id
-            SCLogger.debug( "save_and_commit measurements" )
-            self.measurement_set.upsert( load_defaults=True )
-            if len( self.measurement_set.measurements ) > 0:
-                for m in self.measurement_set.measurements:
-                    m.measurementset_id = self.measurement_set.id
-                Measurements.upsert_list( self.measurement_set.measurements, load_defaults=True )
-            commits.append( 'measurement_set' )
+            # warped psf
+            if ( save_warped_ref and ( self.aligned_ref_psf is not None ) and
+                 ( 'aligned_ref_psf' not in already_in_db )
+                ):
+                SCLogger.debug( "save_and_commit inserting aligned_ref_psf" )
+                self.aligned_ref_psf.insert( load_defaults=True, pgdb=pgdb, nocommit=True )
 
-        # scores
-        if self.deepscore_set is not None:
-            if self.measurement_set is not None:
-                self.deepscore_set.measurementset_id = self.measurement_set.id
-            SCLogger.debug( "save_and_commit scores" )
-            self.deepscore_set.upsert( load_defaults=True )
-            if len( self.deepscore_set.deepscores ) > 0:
-                for d in self.deepscore_set.deepscores:
-                    d.deepscoreset_id = self.deepscore_set.id
-                DeepScore.upsert_list( self.deepscore_set.deepscores, load_defaults=True )
-            commits.append( 'deepscore_set' )
+            # warped bg
+            if ( save_warped_ref and ( self.aligned_ref_bg is not None ) and
+                 ( 'aligned_ref_bg' not in already_in_db )
+                ):
+                SCLogger.debug( "save_and_commit inserting aligned_ref_bg" )
+                self.aligned_ref_bg.insert( load_defaults=True, pgdb=pgdb, nocommit=True )
 
-        self.products_committed = ",".join( commits )
+            # subtraction Image
+            if ( self.sub_image is not None ) and ( 'sub_image' not in already_in_db ):
+                SCLogger.debug( "save_and_commit inserting sub_image" )
+                self.sub_image.insert( load_defaults=True, pgdb=pgdb, nocommit=True )
+                commits.append( 'sub_image' )
 
-        # fakes
-        if self.fakes is not None:
-            if self.zp is not None:
-                self.fakes.zp_id = self.zp.id
-            SCLogger.debug( "save_and_commit fakes" )
-            self.fakes.upsert( load_defaults=True )
-            commits.append( "fakes" )
+            # detections
+            if ( self.detections is not None ) and ( 'detections' not in already_in_db ):
+                if self.sub_image is not None:
+                    self.detections.image_id = self.sub_image.id
+                SCLogger.debug( "save_and_commit inserting detections" )
+                self.detections.insert( load_defaults=True, pgdb=pgdb, nocommit=True )
+                commits.append( 'detections' )
 
-        # fake analysis
-        if self.fakeanal is not None:
-            if self.fakes is not None:
-                self.fakeanal.fakeset_id = self.fakes.id
-            # NO!  Not setting orig_deepscore_set_id.  The deepscore set
-            #   in the DataStore is almost certainly *not* the original
-            #   deepscore set, but the one from the with-fakes
-            #   subtraction!  If somebody hasn't properly set
-            #   orig_deepscore_set_id, then we'll just get a database
-            #   error when we try to insert, which is fine.
-            #   pipeline/top_level.py does the right thing.
-            # if self.deepscore_set is not None:
-            #     self.fakeanal.orig_deepscore_set_id = ...uhoh
-            SCLogger.debug( "save_and_commit fakeanal" )
-            self.fakeanal.upsert( load_defaults=True )
-            commits.append( "fakeanal" )
+            # cutouts
+            if ( self.cutouts is not None ) and ( 'cutouts' not in already_in_db ):
+                if self.detections is not None:
+                    self.cutouts.detections_id = self.detections.id
+                SCLogger.debug( "save_and_commit inserting cutouts" )
+                self.cutouts.insert( load_defaults=True, pgdb=pgdb, nocommit=True )
+                commits.append( 'cutouts' )
+
+            # measurements
+            if ( self.measurement_set is not None ) and ( 'measurement_set' not in already_in_db ):
+                if self.cutouts is not None:
+                    self.measurement_set.cutouts_id = self.cutouts.id
+                SCLogger.debug( "save_and_commit inserting measurements" )
+                self.measurement_set.insert( load_defaults=True, pgdb=pgdb, nocommit=True )
+                if len( self.measurement_set.measurements ) > 0:
+                    for m in self.measurement_set.measurements:
+                        m.measurementset_id = self.measurement_set.id
+                    Measurements.insert_list( self.measurement_set.measurements, pgdb=pgdb,
+                                              load_defaults=True, nocommit=True )
+                commits.append( 'measurement_set' )
+
+            # scores
+            if ( self.deepscore_set is not None ) and ( 'deepscore_set' not in already_in_db ):
+                if self.measurement_set is not None:
+                    self.deepscore_set.measurementset_id = self.measurement_set.id
+                SCLogger.debug( "save_and_commit inserting scores" )
+                self.deepscore_set.insert( load_defaults=True, pgdb=pgdb, nocommit=True )
+                if len( self.deepscore_set.deepscores ) > 0:
+                    for d in self.deepscore_set.deepscores:
+                        d.deepscoreset_id = self.deepscore_set.id
+                    DeepScore.insert_list( self.deepscore_set.deepscores, pgdb=pgdb,
+                                           load_defaults=True, nocommit=True )
+                commits.append( 'deepscore_set' )
+
+            # fakes
+            if ( self.fakes is not None ) and ( 'fakes' not in already_in_db ):
+                if self.zp is not None:
+                    self.fakes.zp_id = self.zp.id
+                SCLogger.debug( "save_and_commit inserting fakes" )
+                self.fakes.insert( load_defaults=True, pgdb=pgdb, nocommit=True )
+                commits.append( "fakes" )
+
+            # fake analysis
+            if ( self.fakeanal is not None ) and ( 'fakeanal' not in already_in_db ):
+                if self.fakes is not None:
+                    self.fakeanal.fakeset_id = self.fakes.id
+                # NO!  Not setting orig_deepscore_set_id.  The deepscore set
+                #   in the DataStore is almost certainly *not* the original
+                #   deepscore set, but the one from the with-fakes
+                #   subtraction!  If somebody hasn't properly set
+                #   orig_deepscore_set_id, then we'll just get a database
+                #   error when we try to insert, which is fine.
+                #   pipeline/top_level.py does the right thing.
+                # if self.deepscore_set is not None:
+                #     self.fakeanal.orig_deepscore_set_id = ...uhoh
+                SCLogger.debug( "save_and_commit inserting fakeanal" )
+                self.fakeanal.insert( load_defaults=True, pgdb=pgdb, nocommit=True )
+                commits.append( "fakeanal" )
+
+            if len( commits ) > 0:
+                self.products_committed += "," if len(self.products_committed)>0 else ""
+                self.products_committed += ",".join( commits )
+                SCLogger.info( f"DataStore commtting {len(commits)} data products to databsae." )
+                pgdb.commit()
 
 
     def delete_everything( self, do_not_clear=False ):
@@ -2534,12 +2954,9 @@ class DataStore:
                 self.exposure._header = None
 
         # TODO : free() for fakes and fakeanal
-        for prop in [ self._image, self.aligned_ref_image, self.aligned_new_image,
-                      self.reference, self._sub_image,
-                      self._bg, self.aligned_ref_bg, self.aligned_new_bg,
-                      self._sources, self.aligned_ref_sources, self.aligned_new_sources,
-                      self._psf, self.aligned_ref_psf, self.aligned_new_psf,
-                      self._wcs ]:
+        for prop in [ self._image, self._sources, self._bg, self._psf, self._wcs, self._sub_image,
+                      self._aligned_ref_image, self.aligned_ref_sources, self._aligned_ref_bg, self._aligned_ref_psf,
+                      self.reference ]:
             if prop is not None:
                 prop.free()
 

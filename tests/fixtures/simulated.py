@@ -2,18 +2,20 @@ import pytest
 import os
 import uuid
 import copy
+import textwrap
 import collections.abc
 
 import numpy as np
 
-import sqlalchemy as sa
+from psycopg import sql
 
 from astropy.io import fits
 from astropy.wcs import WCS
 from astropy.coordinates import SkyCoord
 
-from models.base import SmartSession, PsycopgConnection
+from models.base import PGDB
 from models.provenance import Provenance
+import models.object
 from models.exposure import Exposure
 from models.image import Image
 from models.source_list import SourceList
@@ -25,6 +27,7 @@ from models.instrument import Instrument
 
 from pipeline.data_store import DataStore
 from pipeline.top_level import Pipeline
+from pipeline.lightcurve import Lightcurve
 
 from improc.simulator import Simulator
 from improc.tools import make_gaussian
@@ -85,10 +88,9 @@ def generate_exposure_fixture( seed=None ):
 
         e.delete_from_disk_and_database()
 
-        with SmartSession() as session:
-            # The provenance will have been automatically created
-            session.execute( sa.delete( Provenance ).where( Provenance._id==e.provenance_id ) )
-            session.commit()
+        with PGDB() as pgdb:
+            pgdb.execute( sql.SQL( "DELETE FROM provenances WHERE _id={pid}" ).format( pid=e.provenance_id ) )
+            pgdb.commit()
 
     return new_exposure
 
@@ -121,14 +123,13 @@ def sim_exposure_filter_array():
     yield e
 
     if 'e' in locals():
-        with SmartSession() as session:
-            e = session.merge(e)
-            if sa.inspect( e ).persistent:
-                session.delete(e)
-                session.commit()
-
-            session.execute( sa.delete( Provenance ).where( Provenance._id==e.provenance_id ) )
-            session.commit()
+        with PGDB() as pgdb:
+            # We don't do Exposure.delete_from_disk_and_database()
+            #   because the fixture didn't actually make an exposure file,
+            #   just a fake exposure record for things to chew on.
+            pgdb.execute( sql.SQL( "DELETE FROM exposures WHERE _id={eid}" ).format( eid=e.id ) )
+            pgdb.execute( sql.SQL( "DELETE FROM provenances WHERE _id={pid}" ).format( pid=e.provenance_id ) )
+            pgdb.commit()
 
 
 # tools for making Image fixtures
@@ -177,7 +178,8 @@ class ImageCleanup:
 
         image.save(no_archive=not archive)
 
-        return cls(image, archive=archive)  # don't use this, but let it sit there until going out of scope of the test
+        return ImageCleanup(image, archive=archive)  # don't use this, but let it sit there
+                                                     #     until going out of scope of the test
 
     def __init__(self, image, archive=True):
         self.image = image
@@ -205,7 +207,6 @@ def generate_image_fixture(commit=True, filter=None, seed=None ):
         #  would get an error about unknown exposure id
         #  when trying to commit the image.
         exp = commit_exposure(exp)
-        exp.update_instrument()
 
         im = Image.from_exposure(exp, section_id=0)
         im.provenance_id = provenance_preprocessing.id
@@ -268,7 +269,6 @@ def sim_reference(provenance_preprocessing, provenance_extraction, provenance_ex
         exp.dec = dec
         exposures.append( exp )
 
-        exp.update_instrument()
         im = Image.from_exposure(exp, section_id=0)
         im.data = im.raw_data - np.median(im.raw_data)
         im.flags = rng.integers(0, 100, size=im.raw_data.shape, dtype=np.int16)
@@ -364,10 +364,11 @@ def sim_reference(provenance_preprocessing, provenance_extraction, provenance_ex
     for exp in exposures:
         exp.delete_from_disk_and_database()
 
-    with SmartSession() as session:
-        session.execute( sa.delete( SourceList ).where( SourceList._id==sc.id ) )
-        session.execute( sa.delete( Provenance ).where( Provenance._id.in_([coaddprov.id, refprov.id]) ) )
-        session.commit()
+    with PGDB() as pgdb:
+        pgdb.execute( sql.SQL( "DELETE FROM source_lists WHERE _id={sid}" ).format( sid=sc.id ) )
+        pgdb.execute( sql.SQL( "DELETE FROM provenances WHERE _id=ANY(ARRAY[{pids}])"
+                              ).format( sql.SQL(",").join( [coaddprov.id, refprov.id] ) ) )
+        pgdb.commit()
 
 
 @pytest.fixture
@@ -670,6 +671,7 @@ def sim_lightcurve_image_parameters():
                   'refexptime': 600.,
                   'refmjdend': 60000. + 600. / 3600. / 24.,
                   'refskye-': 200.,
+                  'mjdoffs': np.array( [ 30., 32., 37., 40., 45., 55. ] )
                  }
     imageargs = { 'ra': ra,
                   'dec': dec,
@@ -701,10 +703,9 @@ def sim_lightcurve_image_parameters():
 
     yield imageinfo, imageargs
 
-    with PsycopgConnection() as con:
-        cursor = con.cursor()
-        cursor.execute( "DELETE FROM provenances WHERE _id=%(id)s", { 'id': improv.id } )
-        con.commit()
+    with PGDB() as pgdb:
+        pgdb.execute( "DELETE FROM provenances WHERE _id=%(id)s", { 'id': improv.id } )
+        pgdb.commit()
 
 
 @pytest.fixture
@@ -860,10 +861,9 @@ def sim_lightcurve_reference_image_unsaved( sim_lightcurve_image_parameters, sim
     # saved stuff cleaned up after itself.  But, just to be sure....
 
     ds.delete_everything()
-    with PsycopgConnection() as conn:
-        cursor = conn.cursor()
-        cursor.execute( "DELETE FROM provenance_tags WHERE tag='sim_lightcurve_reference'" )
-        conn.commit()
+    with PGDB() as pgdb:
+        pgdb.execute( "DELETE FROM provenance_tags WHERE tag='sim_lightcurve_reference'" )
+        pgdb.commit()
 
 
 # Function used by the next two fixtures
@@ -889,16 +889,17 @@ def sim_lightcurve_reference( sim_lightcurve_reference_image_unsaved ):
         yield ref, ds
     finally:
         if ref is not None:
-            with PsycopgConnection() as conn:
-                cursor = conn.cursor()
-                cursor.execute( "DELETE FROM refsets WHERE name='sim_lightcurve_reference'" )
-                cursor.execute( "DELETE FROM refs WHERE _id=%(id)s", { 'id': ref.id } )
-                conn.commit()
+            with PGDB() as pgdb:
+                pgdb.execute( "DELETE FROM refsets WHERE name='sim_lightcurve_reference'" )
+                pgdb.execute( "DELETE FROM refs WHERE _id=%(id)s", { 'id': ref.id } )
+                pgdb.commit()
 
         sim_lightcurve_reference_image_unsaved.delete_everything( do_not_clear=True )
 
 
 # Same as previous fixture, but with module scope for efficiency
+# WARNING: don't mix the module and non-module fixtures in the same
+#   file, or you will become sad!
 @pytest.fixture( scope='module' )
 def sim_lightcurve_reference_module(  sim_lightcurve_reference_image_unsaved ):
     ref = None
@@ -907,13 +908,54 @@ def sim_lightcurve_reference_module(  sim_lightcurve_reference_image_unsaved ):
         yield ref, ds
     finally:
         if ref is not None:
-            with PsycopgConnection() as conn:
-                cursor = conn.cursor()
-                cursor.execute( "DELETE FROM refsets WHERE name='sim_lightcurve_reference'" )
-                cursor.execute( "DELETE FROM refs WHERE _id=%(id)s", { 'id': ref.id } )
-                conn.commit()
+            with PGDB() as pgdb:
+                pgdb.execute( "DELETE FROM refsets WHERE name='sim_lightcurve_reference'" )
+                pgdb.execute( "DELETE FROM refs WHERE _id=%(id)s", { 'id': ref.id } )
+                pgdb.commit()
 
         sim_lightcurve_reference_image_unsaved.delete_everything( do_not_clear=True )
+
+
+# This fixture is used in pipeline/test_lightcurve.py
+@pytest.fixture( scope='module' )
+def sim_lightcurve_diaforcedphot_references_module( sim_lightcurve_reference_module,
+                                                    sim_lightcurve_persistent_sources ):
+    _ref, ds = sim_lightcurve_reference_module
+    refs = []
+    imgs = []
+    for obj in sim_lightcurve_persistent_sources:
+        xcen, ycen = ds.wcs.wcs.world_to_pixel_values( obj['ra'], obj['dec'] )
+        xcen = int( np.floor(xcen + 0.5) )
+        ycen = int( np.floor(ycen + 0.5) )
+        x0 = xcen - 75
+        x1 = x0 + 150
+        y0 = ycen - 75
+        y1 = y0 + 150
+        mess = ds.image.trim( x0, x1, y0, y1, adjust_limits=True, sources=ds.sources, bg=ds.bg,
+                              psf=ds.psf, wcs=ds.wcs, zp=ds.zp, save_prov=True, save_to_db=True )
+        imgs.append( mess['image'] )
+        with PGDB() as pgdb:
+            refprov = Provenance( process='referencing', parameters={ 'overlap_fraction': None,
+                                                                      'coadd_overlap_fraction': None,
+                                                                      'instrument': ds.image.instrument,
+                                                                      'zp_prov_id': ds.zp.provenance_id,
+                                                                     } )
+            refprov.insert_if_needed( pgdb=pgdb )
+            ref = Reference( zp_id=mess['zp'].id, provenance_id=refprov.id )
+            ref.insert( pgdb=pgdb )
+            refs.append( ref )
+
+    refset = RefSet( name='sim_lightcurve_diaforcedphot_reference', provenance_id=refprov.id )
+    refset.insert()
+
+    yield refs
+
+    for ref in refs:
+        ref.delete_from_disk_and_database()
+    # We should just be able to delete the images, because that will also
+    #    delete all the downstreams
+    for img in imgs:
+        img.delete_from_disk_and_database()
 
 
 # Usually don't use this fixture directly, use the sim_lightcurve_new_ds_factory fixture
@@ -939,14 +981,8 @@ def sim_lightcurve_image_datastore_maker_factory( sim_lightcurve_image_parameter
         ds.prov_tree = pip.make_provenance_tree( ds, no_provtag=True, ok_no_ref_prov=True )
 
         ds = pip.extractor.run( ds, input_psf=refds.psf )
-        ds.sources.save( image=ds.image )
-        ds.sources.insert()
         # Fix the psf sources_id now that we have a sources
         ds.psf.sources_id = ds.sources.id
-        ds.psf.save( image=ds.image, sources=ds.sources )
-        ds.psf.insert()
-        ds.bg.save( image=ds.image, sources=ds.sources )
-        ds.bg.insert()
 
         # The WCS is the same as the reference image wcs
         # Make a fake WCS, because these sources are simulated so don't match the sky
@@ -954,11 +990,9 @@ def sim_lightcurve_image_datastore_maker_factory( sim_lightcurve_image_parameter
         ds.wcs.wcs = refds.wcs.wcs
         ds.wcs.sources_id = ds.sources.id
         ds.wcs.provenance_id = ds.prov_tree['astrocal'].id
-        ds.wcs.save( image=ds.image )
         ds.wcs._fill_bogus_coordinate_fields( ra=imageargs['ra'], dec=imageargs['dec'],
                                               minra=imageargs['minra'], maxra=imageargs['maxra'],
                                               mindec=imageargs['mindec'], maxdec=imageargs['maxdec'] )
-        ds.wcs.insert()
 
         # Likewise, make a fake zeropoint, cheating again on provenance
         # (Sad about the number of stars for aperture correction; probably
@@ -967,6 +1001,18 @@ def sim_lightcurve_image_datastore_maker_factory( sim_lightcurve_image_parameter
         ds.zp = ZeroPoint( wcs_id=ds.wcs.id, zp=27.50, dzp=0.02,
                            aper_cor_radii=ds.sources.aper_rads, aper_cors=apercors,
                            provenance_id=ds.prov_tree['photocal'].id )
+
+        # Save all the things
+        ds.image.save()
+        ds.image.insert()
+        ds.sources.save( image=ds.image )
+        ds.sources.insert()
+        ds.bg.save( image=ds.image, sources=ds.sources )
+        ds.bg.insert()
+        ds.psf.save( image=ds.image, sources=ds.sources )
+        ds.psf.insert()
+        ds.wcs.save( image=ds.image )
+        ds.wcs.insert()
         ds.zp.insert()
 
         dsentocleanup.append( ds )
@@ -1036,8 +1082,6 @@ def _do_sim_lightcurve_new_ds_factory( imageinfo, imageargs, refds, sources, wcs
         wcsparm['CRVAL1'] += rng.normal( 0., 20./3600. )
         wcsparm['CRVAL2'] += rng.normal( 0., 20./3600. )
         image._header = fits.Header( wcsparm )
-        image.save()
-        image.insert()
 
         ds = maker( image )
         dsentodel.append( ds )
@@ -1068,10 +1112,9 @@ def sim_lightcurve_new_ds_factory( sim_lightcurve_image_parameters,
 
     for ds in dsentodel:
         ds.delete_everything()
-    with PsycopgConnection() as conn:
-        cursor = conn.cursor()
-        cursor.execute( "DELETE FROM provenance_tags WHERE tag='sim_lightcurve'" )
-        conn.commit()
+    with PGDB() as pgdb:
+        pgdb.execute( "DELETE FROM provenance_tags WHERE tag='sim_lightcurve'" )
+        pgdb.commit()
 
 
 # Same as previous fixture, but module scope for efficiency.
@@ -1096,10 +1139,9 @@ def sim_lightcurve_new_ds_factory_module( sim_lightcurve_image_parameters,
 
     for ds in dsentodel:
         ds.delete_everything()
-    with PsycopgConnection() as conn:
-        cursor = conn.cursor()
-        cursor.execute( "DELETE FROM provenance_tags WHERE tag='sim_lightcurve'" )
-        conn.commit()
+    with PGDB() as pgdb:
+        pgdb.execute( "DELETE FROM provenance_tags WHERE tag='sim_lightcurve'" )
+        pgdb.commit()
 
 
 # This fixture still takes a minute or two to run.  Too much time is
@@ -1108,11 +1150,12 @@ def sim_lightcurve_new_ds_factory_module( sim_lightcurve_image_parameters,
 #   oh well.  Code for the general case, watch it be inefficient in
 #   a specific case.
 @pytest.fixture
-def sim_lightcurve_news( sim_lightcurve_new_ds_factory, sim_lightcurve_rng ):
+def sim_lightcurve_news( sim_lightcurve_new_ds_factory, sim_lightcurve_rng,
+                         sim_lightcurve_image_parameters ):
     rng = sim_lightcurve_rng
 
     dses = []
-    mjdoffs = np.array( [ 30., 32., 37., 40., 45., 55. ] )
+    mjdoffs = sim_lightcurve_image_parameters[0]['mjdoffs']
     for mjdoff in mjdoffs:
         nextrafluxes = rng.integers( 1, 4 )
         extrafluxes = rng.uniform( 2000., 20000., size=nextrafluxes )
@@ -1124,11 +1167,12 @@ def sim_lightcurve_news( sim_lightcurve_new_ds_factory, sim_lightcurve_rng ):
 
 # Same as previous fixture, but module scope
 @pytest.fixture( scope='module' )
-def sim_lightcurve_news_module( sim_lightcurve_new_ds_factory_module, sim_lightcurve_rng_module ):
+def sim_lightcurve_news_module( sim_lightcurve_new_ds_factory_module, sim_lightcurve_rng_module,
+                                sim_lightcurve_image_parameters ):
     rng = sim_lightcurve_rng_module
 
     dses = []
-    mjdoffs = np.array( [ 30., 32., 37., 40., 45., 55. ] )
+    mjdoffs = sim_lightcurve_image_parameters[0]['mjdoffs']
     for mjdoff in mjdoffs:
         nextrafluxes = rng.integers( 1, 4 )
         extrafluxes = rng.uniform( 2000., 20000., size=nextrafluxes )
@@ -1205,3 +1249,105 @@ def sim_lightcurve_one_complete_ds_module( sim_lightcurve_reference, sim_lightcu
     pip = Pipeline( **sim_lightcurve_pipeline_parameters )
     ds = pip.run( ds )
     return ref, refds, ds, pip
+
+
+@pytest.fixture( scope="module" )
+def sim_lightcurve_lightcurves( sim_lightcurve_persistent_sources,
+                                sim_lightcurve_news_module,
+                                sim_lightcurve_diaforcedphot_references_module,
+                                sim_lightcurve_image_parameters ):
+    srcs = sim_lightcurve_persistent_sources
+    imageinfo, _ = sim_lightcurve_image_parameters
+    newdsen = sim_lightcurve_news_module
+
+    objinfos = []
+    for source in srcs:
+        objinfos.append( { 'ra': source['ra'],
+                           'dec': source['dec'],
+                           'mjds': imageinfo['mjdoffs'] + imageinfo['refmjd'],
+                           'fluxen': source['maxflux'] * np.exp( -( imageinfo['mjdoffs'] - source['mjdmaxoff'] ) **2
+                                                                 / ( 2 * source['sigmadays']**2 ) )
+                          } )
+
+    # Ideally, everything is cleaned up when upstreams in the parent fixtures
+    # are deleted.  However, I don't think we can count on them doing it
+    # in the right order.  So, try to clean up everything we make here.
+    nukes = { 'loose_files': [],
+              'diaforcedphot': [],
+              'subimids': [],
+              'objects': [] }
+    ltcvprovid = None
+    lightcurves = []
+    try:
+        for obji, objinfo in enumerate( objinfos ):
+            # Create an object
+            obj = models.object.Object( name=f'test_lightcurve_object_{obji}',
+                                        ra=objinfo['ra'], dec=objinfo['dec'] )
+            obj.insert()
+            nukes['objects'].append( obj )
+
+            # Lightcurve builder
+            ltcv = Lightcurve( zp_prov = newdsen[0].zp.provenance_id,
+                               crop_image = [150, 150],
+                               mjd0 = imageinfo['refmjd'] + imageinfo['mjdoffs'][0] - 0.1,
+                               mjd1 = imageinfo['refmjd'] + imageinfo['mjdoffs'][-1] + 0.1,
+                               instrument='DemoInstrument',
+                               object_name=f'test_lightcurve_object_{obji}',
+                               subtraction_config={ 'refset': 'sim_lightcurve_diaforcedphot_reference',
+                                                    'save_warped_ref': True,
+                                                    'method': 'hotpants',
+                                                    'hotpants_ko': 0,
+                                                    'hotpants_bgo': 0,
+                                                    'hotpants_numregions': [1, 1],
+                                                    'alignment': { 'min_matched': 6,
+                                                                   'swarp_trust_raw_wcs': True,
+                                                                   'swarp_use_unwarped_psf': True },
+                                                    'reference': { 'min_overlap': None,
+                                                                   'max_dist': 0.003 }
+                                                   },
+                               save_to_db=True
+                              )
+            ltcv.run()
+            lightcurves.append( ltcv.dia_forced_phots )
+            ltcvprovid = ltcvprovid if ltcvprovid is not None else ltcv.dia_forced_phots[-1].provenance_id
+            nukes['diaforcedphot'].extend( ltcv.dia_forced_phots )
+            nukes['subimids'].extend( p.subtraction_id for p in ltcv.dia_forced_phots )
+
+        yield lightcurves, objinfos, ltcvprovid
+
+    finally:
+        # Delete test files if any
+        for f in nukes['loose_files']:
+            f.unlink( missing_ok=True )
+
+        # Delete dia forced phot first, because it's furthest downstream
+        for p in nukes['diaforcedphot']:
+            p.delete_from_disk_and_database()
+
+        # Should be safe to delete objects now:
+        for o in nukes['objects']:
+            o.delete_from_disk_and_database()
+
+        # For subtractions, trace back to the parent trimmed image so
+        # that we can delete that, trusting on its downstream deleting
+        # to get down to the subtraction.  (Again, these trimmed images
+        # are supposed to be deleted as downstreams of the fixture-made
+        # images, but the fixtures aren't currently deleting things in
+        # the right order to avoid all RESTRICT foreign keys.  Besides,
+        # it's nice to clean up after ourselves, yes?)
+        if len( nukes['subimids'] ) > 0:
+            with PGDB( dictcursor=True ) as pgdb:
+                q = sql.SQL( textwrap.dedent(
+                    """
+                    SELECT i.* FROM images i
+                    INNER JOIN source_lists s ON s.image_id=i._id
+                    INNER JOIN world_coordinates w ON w.sources_id=s._id
+                    INNER JOIN zero_points z ON z.wcs_id=w._id
+                    INNER JOIN image_subtraction_components isc ON isc.new_zp_id=z._id
+                    WHERE isc.image_id=ANY(ARRAY[{subids}])
+                    """
+                ) ).format( subids=sql.SQL(",").join( nukes['subimids'] ) )
+                rows = pgdb.execute( q )
+            for row in rows:
+                img = Image.create( **(row) )
+                img.delete_from_disk_and_database()
