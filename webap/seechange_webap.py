@@ -22,7 +22,6 @@ import h5py
 import PIL
 import astropy.time
 import astropy.visualization
-from astropy.io import fits
 from psycopg import sql
 
 import flask
@@ -30,11 +29,14 @@ import flask.logging
 import flask_session
 
 from util.config import Config
-from util.util import asUUID
+from util.util import asUUID, listify
+from models.provenance import Provenance
 from models.enums_and_bitflags import ImageTypeConverter
-from models.base import PsycopgConnection, PGDB
+from models.base import PsycopgConnection, PGDB, FileOnDiskMixin
+from models.image import Image
 from models.deepscore import DeepScoreSet
 from models.fakeset import FakeSet, FakeAnalysis
+from models.diaforcedphot import DiaForcedPhot
 
 sys.path.insert( 0, pathlib.Path(__name__).resolve().parent )
 from baseview import BaseView
@@ -51,11 +53,14 @@ class MainPage( BaseView ):
 
 class ProvTags( BaseView ):
     def do_the_things( self ):
-        with PsycopgConnection() as conn:
-            cursor = conn.cursor()
-            cursor.execute( 'SELECT DISTINCT ON(tag) tag FROM provenance_tags ORDER BY tag' )
-            tags = [ row[0] for row in cursor.fetchall() ]
-            tags.sort( key=lambda x: ( '0' if x=='default' else 1 if x=='current' else 2, x ) )
+        with PGDB() as pgdb:
+            rows, _cols = pgdb.execute( 'SELECT DISTINCT ON(tag) tag FROM provenance_tags ORDER BY tag' )
+            tags = [ row[0] for row in rows ]
+            tags.sort( key=lambda x: ( ( 0 if x=='default'
+                                         else 1 if x=='current'
+                                         else 2 if x=='default_diaforcedphot'
+                                         else 3 )
+                                       , x ) )
             return { 'status': 'ok',
                      'provenance_tags': tags
                     }
@@ -188,6 +193,67 @@ class Projects( BaseView ):
             return { 'status': 'ok',
                      'projects': [ row[0] for row in cursor.fetchall() ]
                     }
+
+
+# ======================================================================
+# This one should be updated for more finding
+
+class Images( BaseView ):
+    def do_the_things( self, provenancetag, argstr=None ):
+        data = self.argstr_to_args( argstr, { 'startdate': None,
+                                              'enddate': None,
+                                              'projects': None,
+                                              } )
+        t0 = None if data['startdate'] is None else astropy.time.Time( data['startdate'], format='isot' ).mjd
+        t1 = None if data['enddate'] is None else astropy.time.Time( data['enddate'], format='isot' ).mjd
+        try:
+            projects = listify( data['projects'], require_string=True )
+        except Exception:
+            return f"Failed to parse projects \"{data['projects']}\"", 422
+
+        with PGDB() as pgdb:
+            q = sql.SQL( textwrap.dedent(
+                """\
+                SELECT i._id, i.filepath, i.provenance_id, i.mjd, i.ra, i.dec, i.exp_time, i._type, i.filter,
+                       i.airmass, i.instrument, i.section_id, i.project, i.target, i.is_sub::int,
+                       i.zero_point_estimate, i.fwhm_estimate, i.lim_mag_estimate,
+                       i.bkg_mean_estimate, i.bkg_rms_estimate
+                FROM images i
+                INNER JOIN provenance_tags t ON t.provenance_id=i.provenance_id
+                                            AND t.tag={provtag}
+                """
+            ) ).format( provtag=provenancetag )
+            where = "WHERE"
+            if t0 is not None:
+                q += sql.SQL( "{where} i.mjd>={t}\n" ).format( t=t0, where=sql.SQL( where ) )
+                where = "  AND"
+            if t1 is not None:
+                q += sql.SQL( "{where} i.mjd<={t}\n" ).format( t=t1, where=sql.SQL( where ) )
+                where = "  AND"
+            if data['projects'] is not None:
+                q += sql.SQL( "{where} i.projects=ANY(ARRAY[{projects}])\n"
+                             ).format( projects=sql.SQL(",").join( projects ) )
+            q += sql.SQL( "ORDER BY i.mjd, i.section_id, i._type\n")
+            rows, cols = pgdb.execute( q )
+
+        rval = { 'status': 'ok',
+                 'startdate': t0,
+                 'enddate': t1,
+                 'provenance_tag': provenancetag,
+                 'projects': projects,
+                 'images': { c: [ r[i] for r in rows ] for i, c in enumerate(cols) }
+                 }
+        slashre = re.compile( '^.*/([^/]+)$' )
+        dex = cols.index( 'filepath' )
+        rval['images']['filename'] = []
+        for row in rows:
+            mat = slashre.search( row[dex] )
+            if mat is None:
+                rval['images']['filename'].append( "????" )
+            else:
+                rval['images']['filename'].append( mat.group(1) )
+
+        return rval
 
 
 # ======================================================================
@@ -418,79 +484,6 @@ class Exposures( BaseView ):
 
 # ======================================================================
 
-class ImageData( BaseView ):
-    def do_the_things( self, expid, provtag, sectionid, sub=0 ):
-        q = sql.SQL( textwrap.dedent(
-            """\
-            SELECT {t}.filepath
-            FROM images i
-            INNER JOIN provenance_tags t ON i.provenance_id=t.provenance_id AND t.tag={provtag}
-            """
-        ) ).format( provtag=provtag, t=sql.Identifier('sub' if sub else 'i') )
-        if sub:
-            q += sql.SQL( textwrap.dedent(
-                """\
-                INNER JOIN (
-                   SELECT s._id, s.image_id
-                   FROM source_lists s
-                   INNER JOIN provenance_tags t ON s.provenance_id=t.provenance_id AND t.tag={provtag}
-                ) s ON s.image_id=i._id
-                INNER JOIN (
-                   SELECT w._id, w.sources_id
-                   FROM world_coordinates w
-                   INNER JOIN provenance_tags t ON w.provenance_id=t.provenance_id AND t.tag={provtag}
-                ) w ON w.sources_id=s._id
-                INNER JOIN (
-                   SELECT z._id, z.wcs_id
-                   FROM zero_points z
-                   INNER JOIN provenance_tags t ON z.provenance_id=t.provenance_id AND t.tag={provtag}
-                ) z ON z.wcs_id=w._id
-                INNER JOIN (
-                   SELECT i._id, i.filepath, isc.new_zp_id AS newzpid
-                   FROM images i
-                   INNER JOIN image_subtraction_components isc ON i._id=isc.image_id
-                   INNER JOIN provenance_tags t ON i.provenance_id=t.provenance_id AND t.tag={provtag}
-                ) sub ON sub.newzpid=z._id
-                """
-            ) ).format( expid=expid, secid=sectionid, provtag=provtag )
-        q += sql.SQL( textwrap.dedent(
-            """\
-            WHERE i.exposure_id={expid} AND i.section_id={secid}
-            """
-        ) ).format( expid=expid, secid=sectionid )
-
-        with PGDB( dictcursor=True ) as pgdb:
-            rows = pgdb.execute( q )
-            filepath = rows[0]['filepath'] if len(rows) > 0 else None
-
-        if filepath is None:
-            return f"No {'subtraction' if sub else 'image'} for exposure {expid} section {sectionid}", 422
-
-        else:
-            cfg = Config.get()
-            # We're assuming file naming convention, whereas we should probably call a function.
-            #   But, I think the only function we have right now is get_fullpath, which will
-            #   make it relative to data_dir... augh, thought required.
-            for fz, hdun in zip( [ '', '.fz' ], [ 0, 1 ] ):
-                fullpath = pathlib.Path( cfg.value( 'archive.local_read_dir' ) ) / f'{filepath}.image.fits{fz}'
-                if fullpath.is_file():
-                    with fits.open( fullpath ) as hdu:
-                        # The convention for rkWebUtil ImView is little-endian 32-bit floats
-                        data = hdu[hdun].data.astype( "<f4" )
-                    barf = bytearray( 4 * data.shape[0] * data.shape[1] + 4 )
-                    barf[0] = data.shape[0] % 256
-                    barf[1] = data.shape[0] // 256
-                    barf[2] = data.shape[1] % 256
-                    barf[3] = data.shape[1] // 256
-                    barf[4:] = data.data
-                    app.logger.debug( f"Returning {len(barf)-4} bytes for a {data.shape[0]}×{data.shape[1]} image" )
-                    return bytes(barf)
-
-            return f"Failed to find image {filepath}.image.fits[.fz]", 422
-
-
-# ======================================================================
-
 class ExposureImages( BaseView ):
     def do_the_things( self, expid, provtag ):
         with PGDB( dictcursor=True ) as pgdb:
@@ -662,6 +655,160 @@ class ExposureReports( BaseView ):
                     retval['reports'][row['section_id']] = row
 
             return retval
+
+
+# ======================================================================
+
+class ImageInfo( BaseView ):
+    def do_the_things( self, imgid ):
+        with PGDB( dictcursor=True ) as pgdb:
+            try:
+                img = Image.get_by_id( imgid, pgdb=pgdb )
+            except Exception:
+                img = None
+            if img is None:
+                img = Image.get_by_field_value( "filepath", imgid, pgdb=pgdb )
+                if len( img ) > 1:
+                    return f"Multiple images with filepath {imgid}; this should never happen.", 422
+                elif len(img) == 0:
+                    img = None
+                else:
+                    img = img[0]
+            if img is None:
+                return f"Could not find image {imgid}", 422
+
+            imgdict = img.to_dict()
+
+            if img.is_sub:
+                q = sql.SQL( textwrap.dedent(
+                    """\
+                    SELECT i._id AS new_id, wi._id AS warped_ref_id, z.zp AS new_zp, rz.zp AS ref_zp
+                    FROM image_subtraction_components isc
+                    INNER JOIN zero_points z ON z._id=isc.new_zp_id
+                    INNER JOIN world_coordinates w ON w._id=z.wcs_id
+                    INNER JOIN source_lists s ON s._id=w.sources_id
+                    INNER JOIN images i ON i._id=s.image_id
+                    INNER JOIN refs r ON r._id=isc.ref_id
+                    INNER JOIN zero_points rz ON rz._id=r.zp_id
+                    LEFT JOIN source_lists ws ON isc.warped_ref_sources_id=ws._id
+                    LEFT JOIN images wi ON ws.image_id=wi._id
+                    WHERE isc.image_id={imid}
+                    """
+                ) ).format( imid=img.id )
+                rows = pgdb.execute( q )
+                if len(rows) == 0:
+                    return f"Failed to get subtraction parents for subtraction image {imgid}", 422
+                elif len(rows) > 1:
+                    return "Database corruption in seechange_webap.py::ImageInfo; this should never happen.", 422
+                imgdict['new_id'] = rows[0]['new_id']
+                imgdict['warped_ref_id'] = rows[0]['warped_ref_id']
+                imgdict['new_zp'] = rows[0]['new_zp']
+                imgdict['ref_zp'] = rows[0]['ref_zp']
+
+            elif img.is_coadd:
+                q = sql.SQL( textwrap.dedent(
+                    """\
+                    SELECT i._id AS imgid, w._id AS wcsid, z.zp
+                    FROM image_coadd_comonent icc
+                    INNER JOIN zero_points z ON icc.zp_id=zp._id
+                    INNER JOIN world_coordinates w ON z.wcs_id=w._id
+                    INNER JOIN source_lists s ON w.sources_id=s._id
+                    INNER JOIN images i ON s.image_id=i._id
+                    WHERE icc.coadd_image_id={imid}
+                    """
+                ) ).format( imid=img.id )
+                rows = pgdb.execute( q )
+                imgdict[ 'coadd_component_zp' ] = [ r['zp'] for r in rows ]
+                imgdict[ 'coadd_component_wcs_id' ] = [ r['imgid'] for r in rows ]
+                imgdict[ 'coadd_component_image_id' ] = [ r['wcsid'] for r in rows ]
+
+            elif img.is_trim:
+                # ... should this be elif?  I think all of is_sub, is_coadd, is_trim are mutually exclusive
+                q = sql.SQL( "SELECT * FROM image_trim_parent WHERE image_id={imgid}" ).format( imgid=img.id )
+                rows = pgdb.execute( q )
+                if len(rows) == 0:
+                    return f"Failed to get trim parents for trimmed image {imgid}", 422
+                elif len(rows) > 1:
+                    return "Database corruption in seechange_webap.py::ImageInfo; this should never happen.", 422
+                imgdict.update( rows[0] )
+
+            return imgdict
+
+
+# ======================================================================
+
+class ImageData( BaseView ):
+    def do_the_things( self, exporimid, provtag=None, sectionid=None, sub=0 ):
+        if sectionid is None:
+            q = sql.SQL( "SELECT * FROM images WHERE _id={imgid}" ).format( imgid=exporimid )
+
+        else:
+            q = sql.SQL( textwrap.dedent(
+                """\
+                SELECT {t}.*
+                FROM images i
+                INNER JOIN provenance_tags t ON i.provenance_id=t.provenance_id AND t.tag={provtag}
+                """
+            ) ).format( provtag=provtag, t=sql.Identifier('sub' if sub else 'i') )
+            if sub and ( sectionid is not None ):
+                q += sql.SQL( textwrap.dedent(
+                    """\
+                    INNER JOIN (
+                       SELECT s._id, s.image_id
+                       FROM source_lists s
+                       INNER JOIN provenance_tags t ON s.provenance_id=t.provenance_id AND t.tag={provtag}
+                    ) s ON s.image_id=i._id
+                    INNER JOIN (
+                       SELECT w._id, w.sources_id
+                       FROM world_coordinates w
+                       INNER JOIN provenance_tags t ON w.provenance_id=t.provenance_id AND t.tag={provtag}
+                    ) w ON w.sources_id=s._id
+                    INNER JOIN (
+                       SELECT z._id, z.wcs_id
+                       FROM zero_points z
+                       INNER JOIN provenance_tags t ON z.provenance_id=t.provenance_id AND t.tag={provtag}
+                    ) z ON z.wcs_id=w._id
+                    INNER JOIN (
+                       SELECT i._id, i.filepath, isc.new_zp_id AS newzpid
+                       FROM images i
+                       INNER JOIN image_subtraction_components isc ON i._id=isc.image_id
+                       INNER JOIN provenance_tags t ON i.provenance_id=t.provenance_id AND t.tag={provtag}
+                    ) sub ON sub.newzpid=z._id
+                    """
+                ) ).format( expid=exporimid, secid=sectionid, provtag=provtag )
+            q += sql.SQL( textwrap.dedent(
+                """\
+                WHERE i.exposure_id={expid} AND i.section_id={secid}
+                """
+            ) ).format( expid=exporimid, secid=sectionid )
+
+        with PGDB( dictcursor=True ) as pgdb:
+            rows = pgdb.execute( q )
+            if len(rows) > 1:
+                imorsub = ( "image" if ( ( sectionid is None ) or ( not sub ) )
+                            else f"subtraction from provtag {provtag}" )
+                return ( f"Database corruption: found more than one {imorsub} with "
+                         f"{f'id {exporimid}' if sectionid is None else f'exposure {exporimid} seciton {sectionid}'}"
+                        ), 422
+            imgobj = Image.create( **(rows[0]) ) if len(rows) > 0 else None
+
+        if imgobj is None:
+            if sectionid is None:
+                return f"Failed to find image with id {exporimid}", 422
+            else:
+                return f"No {'subtraction' if sub else 'image'} for exposure {exporimid} section {sectionid}", 422
+
+        else:
+            # Seechange webap standard is little-endian
+            data = imgobj.data.astype( "<f4" )
+            barf = bytearray( 4 * data.shape[0] * data.shape[1] + 4 )
+            barf[0] = data.shape[0] % 256
+            barf[1] = data.shape[0] // 256
+            barf[2] = data.shape[1] % 256
+            barf[3] = data.shape[1] // 256
+            barf[4:] = data.data
+            app.logger.debug( f"Returning {len(barf)-4} bytes for a {data.shape[0]}×{data.shape[1]} image" )
+            return bytes(barf)
 
 
 # ======================================================================
@@ -874,8 +1021,7 @@ class PngCutoutsForSubImage( BaseView ):
 
             hdf5files = {}
             for subid in cutoutsfiles.keys():
-                hdf5files[ subid ] = h5py.File( pathlib.Path( cfg.value( 'archive.local_read_dir' ) )
-                                                / cutoutsfiles[subid], 'r' )
+                hdf5files[ subid ] = h5py.File( FileOnDiskMixin.local_path / cutoutsfiles[subid], 'r' )
 
             def append_to_retval( subid, index_in_sources, section_id, row ):
                 retval['cutouts']['source_index'].append( index_in_sources )
@@ -1070,15 +1216,14 @@ class FakeAnalysisData( BaseView ):
             retval = { 'status': 'ok',
                        'sections': {} }
 
-            # Reading files directly from the archive because the web ap mounts the archive directory
             for row in rows:
                 secid = row[columns['section_id']]
                 if secid  not in retval['sections']:
                     retval['sections'][secid] = []
                 fakeset = FakeSet.get_by_id( row[columns['fakeset_id']], session=self.session )
-                fakeset.load( filepath=pathlib.Path( cfg.value( 'archive.local_read_dir' ) ) / fakeset.filepath )
+                fakeset.load()
                 fakeanal = FakeAnalysis.get_by_id( row[columns['fakeanal_id']], session=self.session )
-                fakeanal.load( filepath=pathlib.Path( cfg.value( 'archive.local_read_dir' ) ) / fakeanal.filepath )
+                fakeanal.load()
                 zp = row[columns['zp']]
                 # Just sticking numpy arrays directly, in hopes that the json encoding that flask
                 #   does handles this right....
@@ -1112,6 +1257,64 @@ class FakeAnalysisData( BaseView ):
             return retval
 
 
+# ======================================================================
+
+class DiaForcedPhotForObj( BaseView ):
+    def do_the_things( self, objid, provtag ):
+        with PGDB() as pgdb:
+            prov = Provenance.get_for_tag( provtag, process='diaforcedphot', pgdb=pgdb )
+            if prov is None:
+                return f"Can't find provenance for tag {provtag} process diaforcedphot", 422
+
+            ltcv, obj = DiaForcedPhot.get_lightcurve_for_object( objid, prov, include_apertures=True,
+                                                                 include_raw=True, include_im_ids=True,
+                                                                 include_pos=True, include_phot_ids=True,
+                                                                 return_format="dictoflists", return_obj=True )
+            ltcv['objid'] = str(obj.id)
+            ltcv['objname'] = obj.name
+            ltcv['provtag'] = provtag
+            return ltcv
+
+
+# ======================================================================
+
+class DiaForcedPhotClips( BaseView ):
+    def do_the_things( self, photid, clipsize=25 ):
+        if clipsize % 2 == 0:
+            clipsize += 1
+        with PGDB() as pgdb:
+            phot = DiaForcedPhot.get_by_id( photid, pgdb=pgdb )
+            clips = phot.get_clips( clip_size=clipsize )
+
+        clipsize = clips.shape[1]
+        barf = bytearray( 4 * clipsize * clipsize + 4 )
+        barf[0] = clipsize % 256
+        barf[1] = clipsize // 256
+        barf[2] = clipsize % 256
+        barf[3] = clipsize // 256
+        barf[4:] = clips.astype( "<f4" ).data
+
+        return bytes(barf)
+
+
+# ======================================================================
+
+class AllObjsWithDiaForcedPhot( BaseView ):
+    def do_the_things( self, provtag ):
+        with PGDB() as pgdb:
+            q = sql.SQL( textwrap.dedent(
+                """\
+                SELECT DISTINCT ON(o.name) o._id, o.name, o.ra, o.dec
+                FROM dia_forced_photometry p
+                INNER JOIN objects o ON p.object_id=o._id
+                INNER JOIN provenance_tags t ON p.provenance_id=t.provenance_id
+                WHERE t.tag={provtag}
+                ORDER BY o.name
+                """
+            ) ).format( provtag=provtag )
+            rows, cols = pgdb.execute( q )
+
+        return { c: [ r[i] for r in rows ] for i, c in enumerate(cols) }
 
 
 # =====================================================================
@@ -1198,14 +1401,22 @@ urls = {
     "/exposures/<provenancetag>/<path:argstr>": Exposures,
     "/exposure_images/<expid>/<provtag>": ExposureImages,
     "/exposure_reports/<expid>/<provtag>": ExposureReports,
-    "/image_data/<expid>/<provtag>/<sectionid>": ImageData,
-    "/image_data/<expid>/<provtag>/<sectionid>/<int:sub>": ImageData,
+    "/images/<provenancetag>": Images,
+    "/images/<provenancetag>/<path:argstr>": Images,
+    "/image_info/<imgid>": ImageInfo,
+    "/image_data/<exporimid>": ImageData,
+    "/image_data/<exporimid>/<provtag>/<sectionid>": ImageData,
+    "/image_data/<exporimid>/<provtag>/<sectionid>/<int:sub>": ImageData,
     "/png_cutouts_for_sub_image/<exporsubid>/<provtag>/<int:issubid>/<int:nomeas>": PngCutoutsForSubImage,
     "/png_cutouts_for_sub_image/<exporsubid>/<provtag>/<int:issubid>/<int:nomeas>/<int:limit>": PngCutoutsForSubImage,
     ( "/png_cutouts_for_sub_image/<exporsubid>/<provtag>/<int:issubid>/<int:nomeas>/"
       "<int:limit>/<int:offset>" ): PngCutoutsForSubImage,
     "/fakeanalysisdata/<expid>/<provtag>": FakeAnalysisData,
     "/fakeanalysisdata/<expid>/<provtag>/<sectionid>": FakeAnalysisData,
+    "/diaforcedphotforobj/<objid>/<provtag>": DiaForcedPhotForObj,
+    "/diaforcedphotclips/<photid>": DiaForcedPhotClips,
+    "/diaforcedphotclips/<photid>/<int:clipsize>": DiaForcedPhotClips,
+    "/objswithdiaforcedphot/<provtag>": AllObjsWithDiaForcedPhot
 }
 
 usedurls = {}

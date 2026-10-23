@@ -38,7 +38,19 @@ def test_converter_dict():
         15: 'Fringe',
         16: 'Warped',
         17: 'ComWarped',
+        18: 'DiffWarped',
+        19: 'ComDiffWarped',
+        20: 'ExternComSci',
+        21: 'ExternComDiff',
+        22: 'ExternComBias',
+        23: 'ExternComDark',
+        24: 'ExternComDomeFlat',
+        25: 'ExternComSkyFlat',
+        26: 'ExternComTwiFlat',
+        27: 'ExternComWarped',
+        28: 'ExternComDiffWarped'
     }
+
     assert FormatConverter.dict == {
         1: 'fits',
         2: 'hdf5',

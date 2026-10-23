@@ -2,7 +2,7 @@ preloads:
   - /seechange/default_config.yaml
 
 path:
-  data_root: /tmp
+  data_root: /archive/base
   data_temp: /tmp
  
 webap:

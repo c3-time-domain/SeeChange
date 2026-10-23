@@ -237,6 +237,24 @@ def test_associate_measurements( sim_lightcurve_complete_dses_module,
                     allsourceids.add( asUUID( meas.id ) )
                     found = True
                     break
+
+            allfound = False
+            allfoundmorethanonce = False
+            for allmeas in ds.all_measurements:
+                if ( ( np.abs( allmeas.ra - source['ra'] ) < 1./3600. )
+                     and ( np.abs( allmeas.dec - source['dec'] ) < 1./3600. )
+                    ):
+                    if allfound:
+                        allfoundmorethanonce = True
+                    else:
+                        foundallmeas = allmeas
+                        allfound = True
+
+            # ...should we really check this?  I think it should be true,
+            #   but it may be that detection algorithms will detect lots
+            #   of crap near, e.g., ringing.
+            assert not allfoundmorethanonce
+
             #  Image FWHM is 2.72 pixels.  That means that the
             #    source is spread over ~23 pixels (for an aperture of r=1FWHM).
             #  Sky noise is about 57 ADU.  So, noise in 1 aperture is about
@@ -253,7 +271,7 @@ def test_associate_measurements( sim_lightcurve_complete_dses_module,
             #   are on very bright host galaxies.  Maybe what
             #   I should do is turn off the deletion thresholds,
             #   and then look at is_bad?
-            assert found or ( flux < 2000. )
+            assert found or ( flux < 2000. ) or ( allfound and foundallmeas.is_bad )
             if found:
                 thisdet.append( ds )
 
@@ -321,9 +339,10 @@ def test_get_measurements_et_al( sim_lightcurve_complete_dses_module,
     assert objobj.dec == pytest.approx( sim_lightcurve_persistent_sources[2]['dec'], abs=1./3600. )
 
     # Get all measurements for the object; there should be 6, ordered by mjd:
-    expected_mjd = np.array(  [ 60030.,   60032.,   60037.,    60040.,    60045.,    60055. ] )
-    expected_flux = np.array( [1774.5055, 1840.5898, 2035.5627, 2461.621 , 2817.9155, 2689.9111] )
-    expected_rb = np.array(   [ 0.5761,   0.4593,    0.5457,    0.6235,   0.6174,    0.5644 ] )
+
+    expected_mjd = np.array(  [  60030.,   60032.,    60037.,    60040.,    60045.,    60055. ] )
+    expected_flux = np.array( [ 1811.8643, 1771.4181, 1945.0304, 2401.6987, 2766.272 , 2965.0803 ] )
+    expected_rb = np.array(   [ 0.584    , 0.564    , 0.530    , 0.604    , 0.590    , 0.602 ] )
 
     mess = objobj.get_measurements_et_al( measprovid )
     assert len( mess['measurements'] ) == 6
@@ -371,19 +390,19 @@ def test_get_measurements_et_al( sim_lightcurve_complete_dses_module,
     mjds = np.array( [ m.mjd for m in mess['images'] ] )
     fluxen = np.array( [ m.flux_psf for m in mess['measurements'] ] )
     rbs = np.array( [ m.score for m in mess['deepscores'] ] )
-    assert np.all( np.isclose( mjds, expected_mjd[[3,4]], atol=0.1 ) )
-    assert np.all( np.isclose( fluxen, expected_flux[[3,4]], rtol=1e-6 ) )
-    assert np.all( np.isclose( rbs, expected_rb[[3,4]], atol=0.001 ) )
+    assert np.all( np.isclose( mjds, expected_mjd[[3,5]], atol=0.1 ) )
+    assert np.all( np.isclose( fluxen, expected_flux[[3,5]], rtol=1e-6 ) )
+    assert np.all( np.isclose( rbs, expected_rb[[3,5]], atol=0.001 ) )
 
     # Combine date and r/b search
-    mess = objobj.get_measurements_et_al( measprovid, deepprovid, mjd_min=60044, mjd_max=60046,
+    mess = objobj.get_measurements_et_al( measprovid, deepprovid, mjd_min=60039, mjd_max=60041,
                                           min_deepscore=0.6 )
     mjds = np.array( [ m.mjd for m in mess['images'] ] )
     fluxen = np.array( [ m.flux_psf for m in mess['measurements'] ] )
     rbs = np.array( [ m.score for m in mess['deepscores'] ] )
-    assert np.all( np.isclose( mjds, expected_mjd[[4]], atol=0.1 ) )
-    assert np.all( np.isclose( fluxen, expected_flux[[4]], rtol=1e-6 ) )
-    assert np.all( np.isclose( rbs, expected_rb[[4]], atol=0.001 ) )
+    assert np.all( np.isclose( mjds, expected_mjd[[3]], atol=0.1 ) )
+    assert np.all( np.isclose( fluxen, expected_flux[[3]], rtol=1e-6 ) )
+    assert np.all( np.isclose( rbs, expected_rb[[3]], atol=0.001 ) )
 
     # TODO : test thresholds when those are implmeneted
 

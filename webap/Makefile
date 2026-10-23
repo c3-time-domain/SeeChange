@@ -4,7 +4,8 @@ toinstall = seechange_webap.py baseview.py conductor.py ltcv.py updater.py rkaut
 	static/seechange.css static/seechange_ns.js static/seechange.js \
 	static/seechange_ltcv_start.js static/seechange_start.js \
 	static/provenancetags.js static/exposuresearch.js static/exposurelist.js static/exposure.js \
-	static/conductor.js static/ltcv.js \
+        static/imagelist.js static/image.js static/ltcv.js static/diaforcedphot.js \
+        static/conductor.js \
 	static/rkwebutil.js static/svgplot.js static/imview.js static/rkauth.js static/resetpasswd_start.js \
 	static/favicon.ico \
 	templates/base.html templates/ltcv.html templates/seechange_webap.html

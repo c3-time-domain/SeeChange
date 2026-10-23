@@ -1,5 +1,7 @@
 import { rkWebUtil } from "./rkwebutil.js";
 import { seechange } from "./seechange_ns.js"
+import "./exposurelist.js"
+import "./imagelist.js"
 
 // **********************************************************************
 
@@ -8,7 +10,8 @@ seechange.ExposureSearch = class
     constructor( context )
     {
         this.context = context;
-        this.div = rkWebUtil.elemaker( "div", null, { 'id': 'exposuresearchdiv' } );
+        this.div = rkWebUtil.elemaker( "div", null, { 'id': 'exposuresearchdiv',
+                                                      'classes': [ "grow1", "vbox" ] } );
     }
 
 
@@ -24,7 +27,13 @@ seechange.ExposureSearch = class
         vbox = rkWebUtil.elemaker( "div", hbox, { "classes": [ "vbox", "hmargin" ] } );
 
         p = rkWebUtil.elemaker( "p", vbox );
-        button = rkWebUtil.button( p, "Show Exposures", function() { self.parse_widgets_and_show_exposures(); } );
+        button = rkWebUtil.button( p, "Show", function() { self.parse_widgets_and_show_exposures(); } );
+        p.appendChild( document.createTextNode( " " ) );
+        this.imageorexposure = rkWebUtil.elemaker( "select", p );
+        rkWebUtil.elemaker( "option", this.imageorexposure, { "text": "Exposures",
+                                                              "attributes": { "value": "exposures", "selected": 1 } } );
+        rkWebUtil.elemaker( "option", this.imageorexposure, { "text": "Images",
+                                                              "attributes": { "value": "images" } } );
         p.appendChild( document.createTextNode( " from " ) );
         this.startdatewid = rkWebUtil.elemaker( "input", p,
                                                 { "id": "show_exposures_from_wid",
@@ -57,9 +66,35 @@ seechange.ExposureSearch = class
         this.context.connector.sendHttpRequest( "projects", {}, (data) => { self.populate_project_wid(data) } );
 
         rkWebUtil.elemaker( "hr", this.div );
-        this.subdiv = rkWebUtil.elemaker( "div", this.div, { "id": "exposuresearchsubdiv" } );
-        this.exposurelist = new seechange.ExposureList( this.context, this, this.subdiv );
-        this.exposurelist.render_page();
+        this.subdiv = rkWebUtil.elemaker( "div", this.div, { "id": "exposuresearchsubdiv",
+                                                             "classes": [ "vbox", "grow1" ] } );
+
+        this.emptiabledivs = {};
+        this.tabbed = new rkWebUtil.Tabbed( this.subdiv );
+        // Supposedly javascript objects (treated as dictionaries) are
+        //   ordered with integer keys first in numerical order,
+        //   then string keys in insertion order, then symbol
+        //   keys in insertion order.  So, I'm counting
+        //   on the order below being the order we pull.
+        // Dictionary of tabname : title
+        //   tabname will be referred to elsewhere in the code
+        //   so is painful to change.  Title only shows up here
+        //   so should be painless to change.
+        let tabstoadd = { "exposurelist": "Exposure List",
+                          "exposuredetail": "Exposure Detail",
+                          "reports": "Reports",
+                          "imagelist": "Image List",
+                          "imagedetail": "Image Details",
+                          "sources": "Detections",
+                          "fakes": "Fakes"
+                        };
+        for ( let tab in tabstoadd ) {
+            let focused = ( tab=="exposurelist" ? true : false );
+            this.emptiabledivs[tab] = new rkWebUtil.EmptiableDiv( "div", null,
+                                                                  { "id": "exposuresearch_tab_" + tab,
+                                                                    "classes": [ "vbox", "grow1" ] } );
+            this.tabbed.addTab( tab, tabstoadd[tab], this.emptiabledivs[tab].div, focused );
+        }
     }
 
 
@@ -70,10 +105,11 @@ seechange.ExposureSearch = class
         }
     }
 
-
     parse_widgets_and_show_exposures()
     {
-        var startdate, enddate, provtag, projects;
+        var which, startdate, enddate, provtag, projects;
+
+        which = this.imageorexposure.value;
         try {
             startdate = this.startdatewid.value.trim();
             if ( startdate.length > 0 )
@@ -95,25 +131,44 @@ seechange.ExposureSearch = class
         projects = Array.from(this.project_wid.selectedOptions).map( ({ value }) => value );
         if ( projects.includes( '<all>' ) ) projects = null;
 
-        this.show_exposures( startdate, enddate, provtag, projects );
+        this.show_exposures_or_images( which, startdate, enddate, provtag, projects );
     }
 
 
-    show_exposures( startdate, enddate, provtag, projects )
+    show_exposures_or_images( which, startdate, enddate, provtag, projects )
     {
         var self = this;
+        var whichtab, endpoint, callback, div;
 
-        this.exposurelist.tabbed.selectTab( "exposurelist" );
-        rkWebUtil.wipeDiv( this.exposurelist.listdiv );
-        rkWebUtil.elemaker( "p", this.exposurelist.listdiv, { "text": "Loading exposures...",
-                                                              "classes": [ "warning", "bold", "italic" ] } );
-
-        this.context.connector.sendHttpRequest( "exposures/" + provtag,
+        if ( which == "images" ) {
+            whichtab = "imagelist";
+            endpoint = "images/";
+            callback = (data) => { self.actually_show_images( data ); };
+            this.tabbed.showTabs();
+            // THINK -- reports should be shown for image?
+            this.tabbed.hideTabs( [ "exposurelist", "exposuredetail", "reports" ] );
+        } else {
+            whichtab = "exposurelist";
+            endpoint = "exposures/";
+            callback = (data) => { self.actually_show_exposures( data ); };
+            this.tabbed.showTabs();
+            this.tabbed.hideTabs( "imagelist" );
+        }
+        for ( let tab in this.emptiabledivs ) {
+            if ( tab == whichtab ) {
+                this.emptiabledivs[tab].reset( { "text": "Loading " + which + "...",
+                                                 "classes": [ "warning", "bold", "italic" ] } );
+            } else {
+                this.emptiabledivs[tab].reset();
+            }
+        }
+        this.tabbed.selectTab( whichtab );
+        
+        this.context.connector.sendHttpRequest( endpoint + provtag,
                                                 { "startdate": startdate,
                                                   "enddate": enddate,
                                                   "projects": projects },
-                                                function( data ) {
-                                                    self.actually_show_exposures( data ); } );
+                                                callback );
     }
 
 
@@ -124,14 +179,27 @@ seechange.ExposureSearch = class
             window.alert( "Unexpected response from server when looking for exposures." );
             return
         }
-        this.exposurelist.new_exposure_list( data["exposures"],
-                                             data["startdate"],
-                                             data["enddate"],
-                                             data["provenance_tag"],
-                                             data["projects"] );
+        this.exposurelist = new seechange.ExposureList( this.context, this, this.tabbed,
+                                                        this.tabbed.divs["exposurelist"],
+                                                        data["exposures"], data["startdate"], data["enddate"],
+                                                        data["provenance_tag"], data["projects"] );
+        this.exposurelist.render_page();
     };
 
+
+    actually_show_images( data )
+    {
+        this.imagelist = new seechange.ImageList( this.context, this, this.tabbed,
+                                                  this.emptiabledivs["imagelist"].div,
+                                                  this.emptiabledivs["imagedetail"].div,
+                                                  this.emptiabledivs["sources"].div,
+                                                  data.images, data.startdate, data.enddate,
+                                                  data.provenance_tag, data.projects );
+        this.imagelist.render_page();
+    }
 }
+
+
 
 // **********************************************************************
 // Make this into a module

@@ -2,6 +2,29 @@ import { seechange } from "./seechange_ns.js"
 import "./seechange.js"
 
 // **********************************************************************
+// Make sure the user sees errors.  *Maybe* take this out once
+//   we think we're out of development.  If that ever happens.
+
+seechange._erralert = function(event) {
+    if ( event.message.substring( 0, 19 ) == "ResizeObserver loop" ) {
+        console.log( event.message );
+    }
+    else {
+        alert( "Error in javascript: " + event.message
+               + "\nFile: " + event.filename
+               + "\nLine: " + event.lineno );
+    }
+}
+
+seechange._promisealert = function(event) {
+    alert( "Unhandled promise rejection: " + event.reason );
+    // console.log( "Unhandled promise rejection: " + event.reason );
+}
+
+window.addEventListener( 'error', seechange._erralert );
+window.addEventListener( 'unhandledrejection', seechange._promisealert );
+
+// **********************************************************************
 // **********************************************************************
 // **********************************************************************
 // Here is the thing that will make the code run when the document has loaded
@@ -29,4 +52,4 @@ seechange.init_interval = window.setInterval(
     100
 );
 
-export { }
+export { seechange }

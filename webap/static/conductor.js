@@ -106,6 +106,14 @@ seechange.Conductor = class
         td = rkWebUtil.elemaker( "td", tr );
         this.search_target = rkWebUtil.elemaker( "input", td, { "attributes": { "size": 20 } } );
         tr = rkWebUtil.elemaker( "tr", table );
+        td = rkWebUtil.elemaker( "td", tr, { "attributes": { "colspan": 2 }, "text": "RA: " } );
+        this.search_ra = rkWebUtil.elemaker( "input", td, { "attributes": { "size": 8 } } )
+        rkWebUtil.elemaker( "text", td, { "text": " Dec: " } )
+        this.search_dec = rkWebUtil.elemaker( "input", td, { "attributes": { "size": 8 } } )
+        rkWebUtil.elemaker( "text", td, { "text": " Radius: " } )
+        this.search_radius = rkWebUtil.elemaker( "input", td, { "attributes": { "size": 6 } } );
+        rkWebUtil.elemaker( "text", { "text": "°" } )
+        tr = rkWebUtil.elemaker( "tr", table );
         td = rkWebUtil.elemaker( "td", tr, { "classes": [ "right" ], "text": "filter:" } );
         td = rkWebUtil.elemaker( "td", tr );
         this.search_filter = rkWebUtil.elemaker( "input", td, { "attributes": { "size": 20 } } );
@@ -125,7 +133,7 @@ seechange.Conductor = class
                 rkWebUtil.elemaker( "input", td, { "attributes": { "type": "checkbox",
                                                                    "id": "search_state_" + i,
                                                                    "checked": 1 } } );
-            rkWebUtil.elemaker( "label", td, { "text": i, "attributess": { "for": "search_state_" + i } } );
+            rkWebUtil.elemaker( "label", td, { "text": i, "attributes": { "for": "search_state_" + i } } );
         }
         tr = rkWebUtil.elemaker( "tr", table );
         td = rkWebUtil.elemaker( "td", tr, { "classes": [ "right" ], "text": "claim time ≤" } );
@@ -427,24 +435,24 @@ seechange.Conductor = class
             let maxmjd = rkWebUtil.mjdOfDate( rkWebUtil.parseDateAsUTC( this.knownexp_maxtwid.value ) );
             url += "/maxmjd=" + encodeURIComponent( maxmjd.toString() );
         }
-        if ( this.search_instrument.value.trim().length > 0 ) {
-            url += "/instrument=" + encodeURIComponent( this.search_instrument.value.trim() )
+
+        let conditions = { 'instrument': 'search_instrument',
+                           'target': 'search_target',
+                           'filter': 'search_filter',
+                           'project': 'search_project',
+                           'minexptime': 'min_exp_time',
+                           'maxclaimtime': 'max_claim"time',
+                           'ra': 'search_ra',
+                           'dec': 'search_dec',
+                           'radius': 'search_radius'
+                         }
+        for ( let cond in conditions ): {
+            let wid = conditions[ cond ];
+            if ( this[wid].value.trim().length > 0 ) {
+                url += "/" + cond + "=" + encodeURIComponent( this[wid].value.trim() )
+            }
         }
-        if ( this.search_target.value.trim().length > 0 ) {
-            url += "/target=" + encodeURIComponent( this.search_target.value.trim() );
-        }
-        if ( this.search_filter.value.trim().length > 0 ) {
-            url += "/filter=" + encodeURIComponent( this.search_filter.value.trim() );
-        }
-        if ( this.search_project.value.trim().length > 0 ) {
-            url += "/project=" + encodeURIComponent( this.search_project.value.trim() );
-        }
-        if ( this.min_exp_time.value.trim().length > 0 ) {
-            url += "/minexptime=" + encodeURIComponent( this.min_exp_time.value.trim() );
-        }
-        if ( this.max_claim_time.value.trim().length > 0 ) {
-            url += "/maxclaimtime=" + encodeURIComponent( this.max_claim_time.value.trim() );
-        }
+
         let searchstate = [];
         for ( let i of [ "held", "ready", "claimed", "running", "done" ] ) {
             if ( this['search_state_' + i].checked ) searchstate.push( i );

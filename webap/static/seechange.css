@@ -27,7 +27,19 @@
 
 body { color: var(--main-color);
        background: var(--background-color);
+       display: flex;
+       flex-direction: column;
+       height: 100vh;
+       width: 100vw;
+       padding: 1ex;
+       margin: 0;
+       box-sizing: border-box;
      }
+
+div.maindiv { display: flex;
+              flex-direction: column;
+              flex-grow: 1;
+            }
 
 .good { color: var(--good-color) }
 .bad { color: var(--bad-color) }
@@ -48,6 +60,11 @@ body { color: var(--main-color);
 .link { background: none; border: none; padding: 0;
         color: var(--link-color); text-decoration: var(--link-decoration); cursor: pointer; }
 
+.font75 { font-size: 75% }
+.font50 { font-size: 50% }
+
+.nopadding { padding: 0 }
+.noborder { border: 0 }
 .padhalfex { padding: 0.5ex }
 .padex { padding: 1ex }
 .hmargin { margin-left: 0.5ex; margin-right: 0.5ex }
@@ -57,6 +74,8 @@ body { color: var(--main-color);
 .marginleftex { margin-left: 1ex }
 .marginleftem { margin-left: 1em }
 .marginbotex { margin-bottom: 1ex }
+.margintopem { margin-top: 1em }
+.margintopex { margin-top: 1em }
 .mostlyborder { border: 2px solid var(--mostlyfull-color-border); }
 .midborder { border: 2px solid var(--mid-color-border); }
 .insetborder { border-style: inset;
@@ -98,12 +117,17 @@ a { color: var(--link-color); text-decoration: var(--link-decoration); cursor: p
           border: 2px inset var(--full-color-border);
           margin-left: 0.5ex;
           margin-right: 0.5ex; }
-div.tabdiv {}
-div.buttonboxdiv {}
+div.tabdiv { flex-grow: 1;
+             display: flex;
+             flex-direction: column;
+           }
+div.buttonboxdiv { flex-grow: 0 }
 div.tabcontentdiv { border: 2px solid var(--mostlyfull-color-border);
                     padding: 0.5ex;
+                    flex-grow: 1;
+                    display: flex;
+                    flex-direction: column;
                   }
-
 
 table { border: 2px solid var(--full-color-border); border-spacing: 2px }
 table th { border-bottom: 2px solid var(--full-color-border); font-weight: bold }
@@ -139,6 +163,8 @@ div.dispflex { display : flex; }
 div.dispblock { display : block; }
 
 .alignflexstart { align-items: flex-start; }
+.selfstretch { align-self: stretch; }
+.selfstart { align-self: start; }
 
 div.hbox { display: flex;
            flex-direction: row;
@@ -153,6 +179,12 @@ div.vbox100p  { display: flex;
                 flex-direction: column;
                 height: 100%;
               }
+div.nogrow { flex-grow: 0; }
+div.grow0 { flex-grow: 0; }
+div.grow1 { flex-grow: 1; }
+div.noshrink { flex-shrink: 0; }
+div.shrink0 { flex-shrink: 0; }
+div.shrink1 { flex-shrink: 1; }
 
 .justifyleft { justify-content: flex-start }
 .justifycenter { justify-content: center }
@@ -161,21 +193,48 @@ div.vbox100p  { display: flex;
 .flexeven { justify-content: space-evenly }
 .minwid25p { min-width: 25%; }
 .minwid40p { min-width: 40%; }
+.width100p { width: 100%; }
 .height100p { height: 100%; }
 .scrolly { overflow-y: scroll }
 .flexfitcontent { flex-basis: fit-content }
 
+
+div.header { display: flex;
+             flex-direction: row;
+             justify-content: space-between;
+             padding: 0;
+             padding-left: 1ex;
+             padding-right: 1ex;
+             border: 0;
+             margin: 0;
+             margin-bottom: 1ex;
+             flex-grow: 0;
+             flex-shrink: 1;
+           }
+div.header h1 { margin: 0;
+                padding: 0 }
 
 div.subdiv { border: 2px solid var(--mostlyfull-color-border);
              padding: 0.5ex;
              margin: 1ex; }
 
 div.authdiv { color: var(--some-faded-color);
-              font-size: 75% }
+              font-size: 75%;
+              flex-grow: 0;
+              margin: 0;
+              padding: 0; }
 
 div.footer { color: var(--some-faded-color);
              font-size: 75%;
              font-style: italic }
+
+
+div.imageinfodiv { margin-left: 1em;
+                   width: 64em;
+                   flex-grow: 0;
+                 }
+
+canvas.clipcanvas { margin: 0; padding: 0; border: 0; z-index: 1; image-rendering: pixelated }
 
 div.conductorconfig { border: 4px inset var(--main-color);
                       font-size: 75%;
@@ -190,11 +249,10 @@ div.conductorworkers { border: 4px inset var(--main-color);
                        width: fit-content; }
 
 
-
 div.svgplottopdiv { position: relative;
                     display: flex;
                     flex-direction: column;
-                    flex-grow: 0;
+                    flex-grow: 1;
                     flex-shrink: 0;
                     min-width: 0;
                     min-height: 0;
@@ -203,7 +261,7 @@ div.svgplotdiv { min-width: 0;
                  min-height: 0;
                  display: flex;
                  flex-direction: row;
-                 flex-grow: 0;
+                 flex-grow: 1;
                  flex-shrink: 0; }
 
 svg.svgplotsvg { display: block;
@@ -236,6 +294,14 @@ div.svgplothbox { display: flex;
                   margin-top: 0.5ex;
                   margin-bottom: 0.5ex;
                 }
+div.svgplothboxleft { display: flex;
+                      flex-direction: row;
+                      justify-content: flex-start;
+                      min-width: 0;
+                      min-height: 0;
+                      margin-top: 0.5ex;
+                      margin-bottom: 0.5ex;
+                    }
 div.svgplotvbox { display: flex;
                   flex-direction: column;
                   min-width: 0;

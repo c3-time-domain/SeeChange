@@ -141,24 +141,41 @@ class ZeroPoint(Base, UUIDMixin, HasBitFlagBadness):
     def get_downstream_ids( self, pgdb=None ):
         """Get ids of downstreams for this Zeropoint.
 
-        This includes subtraction images, coadded images, and references.
+        This includes subtraction images, coadded images, warped images, and references.
 
         """
         from models.image import Image
         from models.reference import Reference
 
         downstreams = []
+        seen = set()
         with PGDB( pgdb ) as pgdb:
             q = sql.SQL( "SELECT coadd_image_id FROM image_coadd_component WHERE zp_id={me}" ).format( me=self.id )
             rows, _cols = pgdb.execute( q )
-            downstreams.extend( [ ( Image, row[0] ) for row in rows ] )
+            for row in rows:
+                if row[0] not in seen:
+                    downstreams.append( ( Image, row[0] ) )
+                    seen.add( row[0] )
 
             q = sql.SQL( "SELECT image_id FROM image_subtraction_components WHERE new_zp_id={me}" ).format( me=self.id )
             rows, _cols = pgdb.execute( q )
-            downstreams.extend( [ ( Image, row[0] ) for row in rows ] )
+            for row in rows:
+                if row[0] not in seen:
+                    downstreams.append( ( Image, row[0] ) )
+                    seen.add( row[0] )
+
+            q = sql.SQL( "SELECT warped_id FROM image_warp_parent WHERE unwarped_zp_id={me}" ).format( me=self.id )
+            rows, _cols = pgdb.execute( q )
+            for row in rows:
+                if row[0] not in seen:
+                    downstreams.append( ( Image, row[0] ) )
+                    seen.add( row[0] )
 
             q = sql.SQL( "SELECT _id FROM refs WHERE zp_id={me}" ).format( me=self.id )
             rows, _cols = pgdb.execute( q )
-            downstreams.extend( [ ( Reference, row[0] ) for row in rows ] )
+            for row in rows:
+                if row[0] not in seen:
+                    downstreams.append( ( Reference, row[0] ) )
+                    seen.add( row[0] )
 
         return downstreams

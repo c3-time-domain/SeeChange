@@ -134,7 +134,9 @@ def test_measuring( diagnostic_injections ):
         ds.image.height = image.shape[0]
         ds.image.weight = 1. / (noise**2)
         ds.image.flags = mask
-        ds.aligned_new_image = ds._image
+
+        ds._sources = SourceList( image_id=ds.image.id )
+        ds._bg = Background( format='scalar', value=0., noise=0., image_shape=image.shape, sources_id=ds._sources.id )
 
         ds._sub_image = Image( mjd=60100. )
         ds.sub_image.data = subimage
@@ -149,14 +151,15 @@ def test_measuring( diagnostic_injections ):
         ds._psf = GaussianPSF( format='gaussian', fwhm_pixels=seeingfwhm )
 
         # The cutter is going to insist on subtracting backgrounds
-        bg = Background( format='scalar', value=0., noise=0., image_shape=image.shape )
-        ds.aligned_new_bg = bg
+        # Have to have something non-None in aligned_ref_sources for the aligned_ref_bg setter to work
+        src = SourceList( image_id=ds.aligned_ref_image.id )
+        bg = Background( format='scalar', value=0., noise=0., image_shape=image.shape, sources_id=src.id )
+        ds.aligned_ref_sources = src
         ds.aligned_ref_bg = bg
 
         # We also need zeropoints as the cutter uses them to scale the ref image
         ds._zp = ZeroPoint( zp=31.4, dzp=0.01, aper_cor_radii=[ 1.1, 5.5 ], aper_cors=[ -0.1, 0. ] )
         ds.aligned_ref_zp = ds.zp
-        ds.aligned_new_zp = ds.zp
 
         # Measuring needs a WCS so it can assign RA and Dec
         ds._wcs = WorldCoordinates()

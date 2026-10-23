@@ -222,14 +222,20 @@ def download_gaia_dr3( minra, maxra, mindec, maxdec, padding=0.1, minmag=18., ma
     df = None
 
     if cfg.value( 'catalog_gaiadr3.use_server' ):
+        SCLogger.debug( f"Trying to query {cfg.value('catalog_gaiad43.server_url')} for gaia catalog info..." )
         dodownload = functools.partial( _download_gaia_dr3_custom_server,
                                         ralow, rahigh, declow, dechigh, minmag, maxmag )
         df = retry_with_sleep( dodownload, sleepmin=0.1, sleept=1.0, sleepfac=2., sleepfuzz=0.1, sleepmax=64,
                                failmessage=( f"trying to download ra=({ralow}:{rahigh}), dec=({declow}:{dechigh}), "
                                              f"mag=({minmag}:{maxmag}) from custom gaia server" ),
                                exception_on_fail=False, retval_on_fail=None )
+        if df is None:
+            SCLogger.warning( f"Failed to download gaia stars from {cfg.value('catalog_gaiad43.server_url')}"
+                              f"{', falling back to NOIRLab' if cfg.value('catalog_gaiadr3.fallback_datalab') else ''} "
+                             )
 
     if ( ( df is None ) and cfg.value( 'catalog_gaiadr3.fallback_datalab' ) ):
+        SCLogger.debug( "Trying to query datalab with queryClient for gaia catalog info..." )
         # Handle RA spanning 0.  When this happens, ralow will be < 0
         if ralow < 0:
             raranges = [ (ralow+360., 360.), (0, rahigh) ]
@@ -273,8 +279,13 @@ def download_gaia_dr3( minra, maxra, mindec, maxdec, padding=0.1, minmag=18., ma
         else:
             df = pandas.concat( dfs ).reset_index()
 
+        if df is None:
+            SCLogger.error( "Failed to download gaia catalog info from NOIRLab." )
+
     if df is None:
         raise RuntimeError( "Failed to download Gaia DR3 sources" )
+    else:
+        SCLogger.debug( "...got gala catalog info." )
 
     # Convert this into a FITS file format that scamp would recognize.
     # In particular, FITS header keywords have to be all upper case

@@ -1,17 +1,30 @@
 ##### some specific files we don't want in the repo
 
-### Misc
+########################################
+# Misc SeeChange debris
+
+# Oh look, we have a temp dir
 temp/*
+
+# tests/improc/test_sky_flat.py makes and uses this;
+#   we should move to using the actual temp dir
+tests/improc/cache/*
+
+# Somebody might have made a couple of these;
+#   we do not want them in the archive
 ./local_overrides.yaml
 ./local_augments.yaml
-tests/improc/cache/*
+
+# The "default" data directory... odd place
 data/cache*
 data/DECam_default_calibrators
-.pytest.ini
+
+# Test output directories
 tests/plots
 tests/temp_data
 tests/test_filestore
 tests/test_tempdata
+
 # These next webap thingies are created
 #   during webap install as symbolic
 #   links into extern/rkwebutil, so
@@ -22,8 +35,11 @@ webap/static/rkauth.js
 webap/static/rkwebutil.js
 webap/static/svgplot.js
 
+# docs build directory
+docs/_build
 
 ### Stuff created by autoconf and ./configure
+# None of this should be persistent
 Makefile
 aclocal.m4
 autom4te.cache/
@@ -38,8 +54,8 @@ pipeline/Makefile
 share/Makefile
 util/Makefile
 
-
-### Environments
+########################################
+# Environments
 .env
 .venv
 env/
@@ -48,14 +64,18 @@ ENV/
 env.bak/
 venv.bak/
 
+########################################
 ### Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
 *$py.class
 .idea/
-# C extensions
+
+########################################
+# C compilation debris
 *.so
 
-### Editor debris
+########################################
+# Editor debris
 # Emacs backup files
 **~

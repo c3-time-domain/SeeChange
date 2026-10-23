@@ -8,11 +8,10 @@
   <title>{% block title %}{% endblock %}</title>
 </head>
 <body>
-  {% block navblock %}{% endblock %}
-  {% block pagebody %}{% endblock %}
-  <section>
-    {% block content %}{% endblock %}
-  </section>
-  {% block footer %}{% endblock %}
+  <div class="header">
+    {% block pagetitle %}{% endblock %}
+    {% block authdiv %}{% endblock %}
+  </div>
+  {% block content %}{% endblock %}
 </body>
 </html>

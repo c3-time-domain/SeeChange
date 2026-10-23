@@ -70,7 +70,6 @@ class WorldCoordinates(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness, Spat
         # manually set all properties (columns or not)
         self.set_attributes_from_dict(kwargs)
 
-
     def _fill_bogus_coordinate_fields( self, image=None, ra=-999., dec=-999.,
                                        minra=-999., maxra=-999., mindec=-999., maxdec=-999. ):
         """This is used in tests to make sure some fields aren't NULL."""
@@ -186,6 +185,12 @@ class WorldCoordinates(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness, Spat
         height = height if height is not None else imhei if imhei is not None else None
 
         super().set_corners_from_wcs( wcs=self.wcs, width=width, height=height, mask=mask, setradec=setradec )
+
+
+    def trim( self, x0, x1, y0, y1 ):
+        newwcs = WorldCoordinates()
+        newwcs.wcs = self.wcs[ y0:y1, x0:x1 ]
+        return newwcs
 
 
     def save( self, filename=None, image=None, **kwargs ):
@@ -329,9 +334,37 @@ class WorldCoordinates(Base, UUIDMixin, FileOnDiskMixin, HasBitFlagBadness, Spat
         return [ ( SourceList, self.sources_id ) ]
 
     def get_downstream_ids(self, pgdb=None):
-        """Get ids of zeropoints downstream of this wcs."""
+        """Get downstreams of this wcs.
+
+        This will include zeropoints and (maybe) images (which were trimmed or warped).
+
+        """
+        downstreams = []
+
         from models.zero_point import ZeroPoint
+        seen = set()
         with PGDB() as pgdb:
             rows, _cols = pgdb.execute( sql.SQL( "SELECT _id FROM zero_points WHERE wcs_id={wcs}" )
                                  .format( wcs=self.id ) )
-            return [ ( ZeroPoint, row[0] ) for row in rows ]
+            for row in rows:
+                if row[0] not in seen:
+                    downstreams.append( ( ZeroPoint, row[0] ) )
+                    seen.add( row[0] )
+
+            rows, _cols = pgdb.execute(
+                sql.SQL( "SELECT image_id FROM image_trim_parent WHERE parent_wcs_id={wcs}" )
+                .format( wcs=self.id ) )
+            for row in rows:
+                if row[0] not in seen:
+                    downstreams.append( ( Image, row[0] ) )
+                    seen.add( row[0] )
+
+            rows, _cols = pgdb.execute(
+                sql.SQL( "SELECT warped_id FROM image_warp_parent WHERE target_wcs_id={wcs}" )
+                .format( wcs=self.id ) )
+            for row in rows:
+                if row[0] not in seen:
+                    downstreams.append( ( Image, row[0] ) )
+                    seen.add( row[0] )
+
+        return downstreams

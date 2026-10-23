@@ -9,6 +9,7 @@ import numpy as np
 import astropy.wcs
 
 from models.base import SmartSession
+from models.provenance import Provenance
 from models.image import Image
 from models.background import Background
 from models.source_list import SourceList
@@ -70,12 +71,15 @@ def test_warp_decam( decam_datastore_through_zp, decam_reference ):
         ds.get_reference()
         aligner = ImageAligner()
         ( warped, warpedsrc,
-          warpedbg, warpedpsf ) = aligner.run( ds.ref_image, ds.ref_sources, ds.ref_bg, ds.ref_psf,
-                                               ds.ref_wcs, ds.ref_zp, ds.image, ds.sources, ds.wcs )
+          warpedbg, warpedpsf,
+          warpedprovs ) = aligner.run( ds.ref_image, ds.ref_sources, ds.ref_bg, ds.ref_psf,
+                                       ds.ref_wcs, ds.ref_zp, ds.image, ds.sources, ds.wcs )
         assert isinstance( warped, Image )
         assert isinstance( warpedsrc, SourceList )
         assert isinstance( warpedbg, Background )
         assert isinstance( warpedpsf, PSF )
+        assert isinstance( warpedprovs, dict )
+        assert all( isinstance( v, Provenance ) for v in warpedprovs.values() )
         assert warped.data.shape == ds.image.data.shape
 
         warped.filepath = f'warp_test_{"".join(random.choices("abcdefghijklmnopqrstuvwxyz",k=10))}'
@@ -190,8 +194,10 @@ def test_alignment_in_image( ptf_reference_image_datastores):
         new_image.insert()
 
         # check that the filename is correct
-        # e.g.: /path/to/data/PTF_<YYYYMMDD>_<HHMMSS>_<sec_ID>_<filt>_ComSci_<prov hash>_u-<coadd hash>.image.fits
-        match = re.match(r'/.*/.*_\d{8}_\d{6}_.*_.*_ComSci_.{6}_u-.{6}\.image\.fits', new_image.get_fullpath()[0])
+        # e.g.: /path/to/PTF_<YYYYMMDD>_<HHMMSS>_<sec_ID>_<filt>_ComSci_<prov hash>_u-<coadd hash>_<posinfo>.image.fits
+        match = re.match(r'/.*/.*_\d{8}_\d{6}_.*_.*_ComSci_.{6}_u-.{6}'
+                         r'_[0-9]{3}\.[0-9]{4}[+\-][0-9]{2}\.[0-9]{4}\.image\.fits',
+                         new_image.get_fullpath()[0])
         assert match is not None
 
         upstream_zps = new_image.get_upstreams()

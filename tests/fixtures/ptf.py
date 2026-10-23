@@ -2,6 +2,7 @@ import pytest
 import uuid
 import os
 import io
+import pathlib
 import shutil
 import base64
 import hashlib
@@ -10,12 +11,12 @@ import requests_file
 
 import numpy as np
 
-import sqlalchemy as sa
+import psycopg.sql as sql
 from bs4 import BeautifulSoup
 from datetime import datetime
 from astropy.io import fits
 
-from models.base import SmartSession
+from models.base import PGDB
 from models.provenance import Provenance
 from models.exposure import Exposure
 from models.image import Image
@@ -41,10 +42,8 @@ from util.util import env_as_bool
 
 @pytest.fixture(scope='session')
 def ptf_cache_dir(cache_dir):
-    output = os.path.join(cache_dir, 'PTF')
-    if not os.path.isdir(output):
-        os.makedirs(output)
-
+    output = pathlib.Path( cache_dir ) / 'PTF'
+    output.mkdir( parents=True, exist_ok=True )
     yield output
 
 
@@ -56,27 +55,27 @@ def ptf_bad_pixel_map(download_url, data_dir, ptf_cache_dir):
     filename = 'C11/masktot.fits'  # TODO: add more CCDs if needed
     # url = 'https://portal.nersc.gov/project/m2218/pipeline/test_images/2012021x/'
     url = os.path.join(download_url, 'PTF/10cwm/2012021x/')
-    data_dir = os.path.join(data_dir, 'PTF_calibrators')
-    data_path = os.path.join(data_dir, filename)
+    data_dir = pathlib.Path(data_dir)
+    data_path = data_dir / 'PTF_calibrators' / filename
 
     if env_as_bool( "LIMIT_CACHE_USAGE" ):
-        if not os.path.isfile( data_path ):
-            os.makedirs( os.path.dirname( data_path ), exist_ok=True )
+        if not data_path.is_file():
+            data_path.parent.mkdir( parents=True, exist_ok=True )
             retry_download( url + filename, data_path )
-        if not os.path.isfile( data_path ):
+        if not data_path.is_file():
             raise FileNotFoundError( f"Can't read {data_path}.  It should have been downloaded!" )
     else:
         # is this file already on the cache? if not, download it
-        cache_path = os.path.join(ptf_cache_dir, filename)
-        if not os.path.isfile(cache_path):
-            os.makedirs(os.path.dirname(cache_path), exist_ok=True)
+        cache_path = ptf_cache_dir / filename
+        if not cache_path.is_file():
+            cache_path.parent.mkdir( parents=True, exist_ok=True )
             retry_download(url + filename, cache_path)
 
-        if not os.path.isfile(cache_path):
+        if not cache_path.is_file():
             raise FileNotFoundError(f"Can't read {cache_path}. It should have been downloaded!")
 
-        if not os.path.isfile(data_path):
-            os.makedirs(os.path.dirname(data_path), exist_ok=True)
+        if not data_path.is_file():
+            data_path.parent.mkdir( parents=True, exist_ok=True )
             shutil.copy2(cache_path, data_path)
 
     with fits.open(data_path) as hdul:
@@ -89,14 +88,13 @@ def ptf_bad_pixel_map(download_url, data_dir, ptf_cache_dir):
 
     yield data
 
-    os.remove(data_path)
+    data_path.unlink()
 
     # remove (sub)folder if empty
-    dirname = os.path.dirname(data_path)
-    for i in range(2):
-        if os.path.isdir(dirname) and len(os.listdir(dirname)) == 0:
-            os.removedirs(dirname)
-            dirname = os.path.dirname(dirname)
+    direc = data_path.parent
+    while ( ( not any(direc.iterdir()) ) and ( direc != data_dir ) ):
+        direc.rmdir()
+        direc = direc.parent
 
 
 @pytest.fixture(scope='session')
@@ -111,31 +109,30 @@ def ptf_downloader(provenance_preprocessing, download_url, data_dir, ptf_cache_d
     """
 
     def download_ptf_function(filename='PTF201104291667_2_o_45737_11.w.fits'):
-
-        os.makedirs(ptf_cache_dir, exist_ok=True)
-        cachedpath = os.path.join(ptf_cache_dir, filename)
-        destination = os.path.join(data_dir, filename)
+        ptf_cache_dir.mkdir( parents=True, exist_ok=True )
+        cachedpath = ptf_cache_dir / filename
+        destination = pathlib.Path( data_dir ) / filename
         # url = f'https://portal.nersc.gov/project/m2218/pipeline/test_images/{filename}'
         url = os.path.join(download_url, 'PTF/10cwm', filename)
 
         if env_as_bool( "LIMIT_CACHE_USAGE" ):
             retry_download( url, destination )
-            if not os.path.isfile( destination ):
+            if not destination.is_file():
                 raise FileNotFoundError( f"Can't read {destination}.  It should have been downloaded!" )
         else:
             # first make sure file exists in the cache
-            if os.path.isfile(cachedpath):
+            if cachedpath.is_file():
                 SCLogger.info(f"{cachedpath} exists, not redownloading.")
             else:
                 retry_download(url, cachedpath)  # make the cached copy
 
-            if not os.path.isfile(cachedpath):
+            if not cachedpath.is_file():
                 raise FileNotFoundError(f"Can't read {cachedpath}. It should have been downloaded!")
 
             # copy the PTF exposure from cache to local storage:
 
-            if not os.path.isfile(destination):
-                os.makedirs(os.path.dirname(destination), exist_ok=True)
+            if not destination.is_file():
+                destination.parent.mkdir( parents=True, exist_ok=True )
                 shutil.copy(cachedpath, destination)
 
         md5sum = hashlib.md5()
@@ -181,7 +178,7 @@ def ptf_datastore_through_cutouts( datastore_factory, ptf_exposure, ptf_ref, ptf
         ptf_exposure,
         11,
         cache_dir=ptf_cache_dir,
-        cache_base_name='187/PTF_20110429_040004_11_R_Sci_7GP3ZI',
+        cache_base_name='187/PTF_20110429_040004_11_R_Sci_3JP3L4',
         overrides={'extraction': {'snr_threshold': 5}, 'subtraction': {'refset': 'test_refset_ptf'}},
         bad_pixel_map=ptf_bad_pixel_map,
         provtag='ptf_datastore',
@@ -199,9 +196,9 @@ def ptf_datastore_through_cutouts( datastore_factory, ptf_exposure, ptf_ref, ptf
     ImageAligner.cleanup_temp_images()
 
     # Clean out the provenance tag that may have been created by the datastore_factory
-    with SmartSession() as session:
-        session.execute( sa.text( "DELETE FROM provenance_tags WHERE tag=:tag" ), {'tag': 'ptf_datastore' } )
-        session.commit()
+    with PGDB() as pgdb:
+        pgdb.execute( sql.SQL( "DELETE FROM provenance_tags WHERE tag={tag}" ).format( tag='ptf_datastore' ) )
+        pgdb.commit()
 
 
 @pytest.fixture
@@ -211,7 +208,7 @@ def ptf_datastore_through_zp( datastore_factory, ptf_exposure, ptf_ref, ptf_cach
         ptf_exposure,
         11,
         cache_dir=ptf_cache_dir,
-        cache_base_name='187/PTF_20110429_040004_11_R_Sci_7GP3ZI',
+        cache_base_name='187/PTF_20110429_040004_11_R_Sci_3JP3L4',
         overrides={'extraction': {'snr_threshold': 5}, 'subtraction': {'refset': 'test_refset_ptf'}},
         bad_pixel_map=ptf_bad_pixel_map,
         provtag='ptf_datastore',
@@ -229,9 +226,9 @@ def ptf_datastore_through_zp( datastore_factory, ptf_exposure, ptf_ref, ptf_cach
     ImageAligner.cleanup_temp_images()
 
     # Clean out the provenance tag that may have been created by the datastore_factory
-    with SmartSession() as session:
-        session.execute( sa.text( "DELETE FROM provenance_tags WHERE tag=:tag" ), {'tag': 'ptf_datastore' } )
-        session.commit()
+    with PGDB() as pgdb:
+        pgdb.execute( sql.SQL( "DELETE FROM provenance_tags WHERE tag={tag}" ).format( tag='ptf_datastore' ) )
+        pgdb.commit()
 
 
 @pytest.fixture
@@ -241,7 +238,7 @@ def ptf_datastore(datastore_factory, ptf_exposure, ptf_ref, ptf_cache_dir, ptf_b
         ptf_exposure,
         11,
         cache_dir=ptf_cache_dir,
-        cache_base_name='187/PTF_20110429_040004_11_R_Sci_7GP3ZI',
+        cache_base_name='187/PTF_20110429_040004_11_R_Sci_3JP3L4',
         overrides={'extraction': {'snr_threshold': 5}, 'subtraction': {'refset': 'test_refset_ptf'}},
         bad_pixel_map=ptf_bad_pixel_map,
         provtag='ptf_datastore'
@@ -252,9 +249,9 @@ def ptf_datastore(datastore_factory, ptf_exposure, ptf_ref, ptf_cache_dir, ptf_b
     ImageAligner.cleanup_temp_images()
 
     # Clean out the provenance tag that may have been created by the datastore_factory
-    with SmartSession() as session:
-        session.execute( sa.text( "DELETE FROM provenance_tags WHERE tag=:tag" ), {'tag': 'ptf_datastore' } )
-        session.commit()
+    with PGDB() as pgdb:
+        pgdb.execute( sql.SQL( "DELETE FROM provenance_tags WHERE tag={tag}" ).format( tag='ptf_datastore' ) )
+        pgdb.commit()
 
 
 @pytest.fixture(scope='session')
@@ -358,8 +355,8 @@ def ptf_reference_image_datastores(ptf_images_datastore_factory):
 
     yield dses
 
-    with SmartSession() as session:
-        expsrs = session.query( Exposure ).filter( Exposure._id.in_( [ d.image.exposure_id for d in dses ] ) ).all()
+    with PGDB( dictcursor=True ) as pgdb:
+        expsrs = Exposure.get_batch_by_ids( [ d.image.exposure_id for d in dses ] )
 
     for ds in dses:
         ds.delete_everything()
@@ -368,9 +365,9 @@ def ptf_reference_image_datastores(ptf_images_datastore_factory):
         expsr.delete_from_disk_and_database()
 
     # Clean out the provenance tag that may have been created by the datastore_factory
-    with SmartSession() as session:
-        session.execute( sa.text( "DELETE FROM provenance_tags WHERE tag=:tag" ), {'tag': 'ptf_reference_images' } )
-        session.commit()
+    with PGDB() as pgdb:
+        pgdb.execute( sql.SQL( "DELETE FROM provenance_tags WHERE tag={tag}" ).format( tag='ptf_reference_images' ) )
+        pgdb.commit()
 
 
 @pytest.fixture
@@ -379,8 +376,8 @@ def ptf_supernova_image_datastores(ptf_images_datastore_factory):
 
     yield dses
 
-    with SmartSession() as session:
-        expsrs = session.query( Exposure ).filter( Exposure._id.in_( [ d.image.exposure_id for d in dses ] ) ).all()
+    with PGDB( dictcursor=True ) as pgdb:
+        expsrs = Exposure.get_batch_by_ids( [ d.image.exposure_id for d in dses ] )
 
     for ds in dses:
         ds.delete_everything()
@@ -389,18 +386,18 @@ def ptf_supernova_image_datastores(ptf_images_datastore_factory):
         expsr.delete_from_disk_and_database()
 
     # Clean out the provenance tag that may have been created by the datastore_factory
-    with SmartSession() as session:
-        session.execute( sa.text( "DELETE FROM provenance_tags WHERE tag=:tag" ), {'tag': 'ptf_supernova_images' } )
-        session.commit()
+    with PGDB() as pgdb:
+        pgdb.execute( sql.SQL( "DELETE FROM provenance_tags WHERE tag={tag}" ).format( tag='ptf_supernova_images' ) )
+        pgdb.commit()
 
 
 @pytest.fixture(scope='session')
 def ptf_aligned_image_datastores(request, ptf_reference_image_datastores, ptf_cache_dir, data_dir):
-    cache_dir = os.path.join(ptf_cache_dir, 'aligned_images')
+    cache_dir = ptf_cache_dir / 'aligned_images'
 
     # try to load from cache
     if (    ( not env_as_bool( "LIMIT_CACHE_USAGE" ) ) and
-            ( os.path.isfile(os.path.join(cache_dir, 'manifest.txt')) )
+            ( (cache_dir / 'manfest.txt').is_file() )
         ):
 
         aligner = ImageAligner( method='swarp' )
@@ -409,10 +406,13 @@ def ptf_aligned_image_datastores(request, ptf_reference_image_datastores, ptf_ca
         ds = ptf_reference_image_datastores[0]
         improv = Provenance.get( ds.image.provenance_id )
         srcprov = Provenance.get( ds.sources.provenance_id )
-        ( warped_prov, warped_sources_prov,
-          warped_wcs_prov, warped_zp_prov ) = aligner.get_provenances( [improv, srcprov], srcprov )
+        provdict = aligner.get_provenances( [improv, srcprov], srcprov )
+        warped_prov = provdict[ 'warped' ]
+        warped_sources_prov = provdict[ 'sources' ]
+        warped_wcs_prov = provdict[ 'wcs' ]
+        warped_zp_prov = provdict[ 'zp' ]
 
-        with open(os.path.join(cache_dir, 'manifest.txt')) as f:
+        with open( cache_dir / 'mainfest.txt' ) as f:
             filenames = f.read().splitlines()
         output_dses = []
         for filename in filenames:
@@ -457,8 +457,8 @@ def ptf_aligned_image_datastores(request, ptf_reference_image_datastores, ptf_ca
                 copy_to_cache( ds.zp, cache_dir, filepath=ds.image.filepath+'.zp.json' )
 
         if not env_as_bool( "LIMIT_CACHE_USAGE" ):
-            os.makedirs(cache_dir, exist_ok=True)
-            with open(os.path.join(cache_dir, 'manifest.txt'), 'w') as f:
+            cache_dir.mkdir( parents=True, exist_ok=True )
+            with open( cache_dir / 'manifest.txt', 'w') as f:
                 for ds in coadder.aligned_datastores:
                     f.write( f'{ds.image.filepath} {ds.sources.filepath} {ds.bg.filepath} '
                              f'{ds.psf.filepath} {ds.wcs.filepath}\n' )
@@ -503,7 +503,8 @@ def ptf_ref(
     utag = base64.b32encode(utag.digest()).decode().lower()
     utag = f'u-{utag[:6]}'
 
-    cache_base_name = f'187/PTF_20090405_073932_11_R_ComSci_{refmaker.coadd_provs["starting_point"].id[:6]}_{utag}'
+    cache_base_name = ( f'187/PTF_20090405_073932_11_R_ComSci_{refmaker.coadd_provs["starting_point"].id[:6]}_{utag}'
+                        f'_187.9831+04.4838' )
 
     extensions = [
         '',
@@ -513,7 +514,7 @@ def ptf_ref(
         f'.wcs_{refmaker.coadd_provs["astrocal"].id[:6]}.txt',
         '.zp'
     ]
-    filenames = [os.path.join(ptf_cache_dir, cache_base_name) + f'{ext}.json' for ext in extensions]
+    filenames = [ ptf_cache_dir / ( cache_base_name + f'{ext}.json' ) for ext in extensions ]
 
     must_run_coadd = True
 
@@ -521,10 +522,14 @@ def ptf_ref(
         founds = [ os.path.isfile(filename) for filename in filenames ]
         if not all(founds):
             strio = io.StringIO()
-            strio.write( "Did not find all files for ptf ref in cache:\n" )
+            strio.write( f"{'Found some, but not' if any(founds) else 'Did not find'} "
+                         f"all files for ptf ref in cache:\n" )
             for filename, found in zip( filenames, founds ):
                 strio.write( f"   {filename} {'found' if found else 'NOT FOUND'}\n" )
-            SCLogger.debug( strio.getvalue() )
+            if any( founds ):
+                SCLogger.warning( strio.getvalue() )
+            else:
+                SCLogger.debug( strio.getvalue() )
 
         else:
             SCLogger.debug( f"ptf_ref loading reference from cache (cache_base_name={cache_base_name})" )
@@ -600,28 +605,30 @@ def ptf_ref(
 
     coadd_datastore.delete_everything()
 
-    with SmartSession() as session:
-        ref_in_db = session.scalars(sa.select(Reference).where(Reference._id == ref.id)).first()
-        assert ref_in_db is None  # should have been deleted by cascade when image is deleted
+    with PGDB() as pgdb:
+        rows, _cols = pgdb.execute( sql.SQL( "SELECT _id FROM refs WHERE _id={refid}" ).format( refid=ref.id ) )
+        assert len(rows) == 0
 
         # Clean up the ref set
         if must_delete_refset:
-            session.execute( sa.delete( RefSet ).where( RefSet._id==refset.id ) )
-            session.commit()
+            pgdb.execute( sql.SQL( "DELETE from refsets WHERE _id={refsetid}" ).format( refsetid=refset.id ) )
+            pgdb.commit()
 
 
 @pytest.fixture
 def ptf_ref_offset(ptf_ref):
     offset_image = None
     try:
-        with SmartSession() as session:
-            ptf_ref_zp = session.query( ZeroPoint ).filter( ZeroPoint._id==ptf_ref.zp_id ).first()
-            ptf_ref_wcs = session.query( WorldCoordinates ).filter( WorldCoordinates._id==ptf_ref_zp.wcs_id ).first()
-            ptf_ref_sources = session.query( SourceList ).filter( SourceList._id==ptf_ref_wcs.sources_id ).first()
-            ptf_ref_bg = session.query( Background ).filter( Background.sources_id==ptf_ref_sources._id ).first()
-            ptf_ref_image = session.query( Image ).filter( Image._id==ptf_ref_sources.image_id ).first()
+        with PGDB() as pgdb:
+            ptf_ref_zp = ZeroPoint.get_by_id( ptf_ref.zp_id, pgdb=pgdb )
+            ptf_ref_wcs = WorldCoordinates.get_by_id( ptf_ref_zp.wcs_id, pgdb=pgdb )
+            ptf_ref_sources = SourceList.get_by_id( ptf_ref_wcs.sources_id, pgdb=pgdb )
+            ptf_ref_bg = Background.get_by_field_value( 'sources_id', ptf_ref_sources.id, pgdb=pgdb )[0]
+            ptf_ref_image = Image.get_by_id( ptf_ref_sources.image_id, pgdb=pgdb )
 
         offset_image = Image.copy_image( ptf_ref_image )
+        # THOUGHT REQUIRED : should this next line be in Image.copy_image?
+        offset_image._coadd_component_zp_ids = ptf_ref_image.coadd_component_zp_ids
         offset_image.ra_corner_00 -= 0.5
         offset_image.ra_corner_01 -= 0.5
         offset_image.ra_corner_10 -= 0.5
@@ -692,22 +699,15 @@ def ptf_refset(provenance_base):
 
     yield refmaker.refset
 
-    # delete all the references and the refset
-    with SmartSession() as session:
-        refs = session.scalars(sa.select(Reference)
-                               .where(Reference.provenance_id == refmaker.refset.provenance_id)
-                               ).all()
-        for ref in refs:
-            session.delete(ref)
-
-        session.execute( sa.delete( RefSet ).where( RefSet.name == refmaker.refset.name ) )
-
-        session.commit()
-
-    # Clean out the provenance tag that may have been created by the refmaker
-    with SmartSession() as session:
-        session.execute( sa.text( "DELETE FROM provenance_tags WHERE tag=:tag" ), {'tag': 'ptf_refset' } )
-        session.commit()
+    with PGDB() as pgdb:
+        # delete all the references and the refset
+        pgdb.execute( sql.SQL( "DELETE FROM refs WHERE provenance_id={provid}" )
+                      .format( provid=refmaker.refset.provenance_id ) )
+        pgdb.execute( sql.SQL( "DELETE FROM refsets WHERE name={name}" )
+                      .format( name=refmaker.refset.name ) )
+        # Clean out the provenance tag that may have been created by the refmaker
+        pgdb.execute( "DELETE FROM provenance_tag WHERE tag='ptf_refset'" )
+        pgdb.commit()
 
 
 @pytest.fixture
@@ -719,26 +719,57 @@ def ptf_subtraction1_datastore( ptf_ref, ptf_supernova_image_datastores, subtrac
                           parameters=subtractor.pars.get_critical_pars(),
                           upstreams=[ds.prov_tree[p] for p in ['referencing','photocal']],
                           is_testing=True )
+    warpedprovs = ImageAligner( **subtractor.pars.alignment ).get_provenances(
+        Provenance.get_batch( [ptf_ref.zp.provenance_id, ds.wcs.provenance_id] ),
+        Provenance.get( ptf_ref.sources.provenance_id ) )
+    for prov in warpedprovs.values():
+        prov.insert_if_needed()
     subprov.insert_if_needed()
     ds.edit_prov_tree( 'subtraction', prov=subprov, new_step=True )
-    cache_path = os.path.join(
-        ptf_cache_dir,
-        f'187/PTF_20100216_075004_11_R_Diff_{subprov.id[:6]}_u-iig7a2.image.fits.json'
-    )
 
-    if ( not env_as_bool( "LIMIT_CACHE_USAGE" ) ) and ( os.path.isfile(cache_path) ):  # try to load this from cache
-        im = copy_from_cache( Image, ptf_cache_dir, cache_path )
-        im.provenance_id = subprov.id
-        ds.sub_image = im
-        ds.sub_image.insert()
+    cache_paths = {
+        'aligned_ref_image': ( Image, warpedprovs["warped"].id,
+                               f'187/PTF_20100216_075004_11_R_Diff_{subprov.id[:6]}_u-x3kezj_'
+                               f'187.9685+04.3897_WarpedRef.json' ),
+        'aligned_ref_sources': ( SourceList, warpedprovs["sources"].id,
+                                 f'187/PTF_20100216_075004_11_R_Diff_{subprov.id[:6]}_u-x3kezj_'
+                                 f'187.9685+04.3897_WarpedRef.sources_{warpedprovs["sources"].id[:6]}.json' ),
+        'sub_image': ( Image, subprov.id,
+                       f'187/PTF_20100216_075004_11_R_Diff_{subprov.id[:6]}_u-x3kezj_187.9685+04.3897.json' )
+    }
+    cache_paths = { k: ( v[0], v[1], ptf_cache_dir / v[2] ) for k, v in cache_paths.items() }
+
+    mustredo = True
+    if ( not env_as_bool("LIMIT_CACHE_USER") ) and any( v[2].is_file() for v in cache_paths.values() ):
+        if not all( v[2].is_file() for v in cache_paths.items() ):
+            SCLogger.warning( "ptf_subtraction1_datastore: some, but not all, cache files exist." )
+        else:
+            mustredo = False
+
+    if not mustredo:
+        for ( prop, info ) in cache_paths.items():
+            cls = info[0]
+            provid = info[1]
+            fpath = info[2]
+            obj = copy_from_cache( cls, ptf_cache_dir, fpath )
+            obj.provenance_id = provid
+            setattr( ds, prop, obj )
+            obj.insert()
 
     else:  # cannot find it on cache, need to produce it, using other fixtures
         ds = subtractor.run( ptf_supernova_image_datastores[0] )
-        ds.sub_image.save()
-        ds.sub_image.insert()
+        with PGDB() as pgdb:
+            for prop, info in cache_paths.items():
+                getattr( ds, prop ).save()
+                getattr( ds, prop ).insert( pgdb=pgdb )
+                cp = getattr( ds, prop ).filepath + ".json"
+                if cp != info[2]:
+                    SCLogger.warning( "ptf_subtraction1_datastore: Determined cache path {cp} does not match "
+                                      "pre-existing cache path {info[2]}" )
 
         if not env_as_bool( "LIMIT_CACHE_USAGE" ) :
-            copy_to_cache(ds.sub_image, ptf_cache_dir)
+            for ( prop, info ) in cache_paths.items():
+                copy_to_cache( getattr( ds, prop ), info[2] )
 
     yield ds
 

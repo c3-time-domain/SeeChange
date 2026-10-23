@@ -9,6 +9,7 @@ from astropy.table import QTable
 
 from improc.tools import make_cutouts
 from models.measurements import Measurements
+from models.enums_and_bitflags import psf_phot_flags_inverse, string_to_bitflag
 from util.logger import SCLogger
 
 
@@ -238,6 +239,7 @@ def photometry( image, noise, mask, positions, apers, measurements=None,
                           center_x_pixel=int(np.round(pos[0])),
                           center_y_pixel=int(np.round(pos[1])),
                          )
+        m.apertures_flags = [0] * len(apers)
 
         # PSFPhotometry is going to spit at us if we feed it a fully masked
         #   object.  Try to detect that ahead of time and skip the photometry
@@ -252,7 +254,7 @@ def photometry( image, noise, mask, positions, apers, measurements=None,
             m.y = pos[1]
             m.flux_psf = np.nan
             m.flux_psf_err = np.nan
-            m.psf_fit_flags = 9         # 1 = "≥1 pixel masked", 8 = "fit did not converge"
+            m.psf_fit_flags = string_to_bitflag( 'fully_masked', psf_phot_flags_inverse )
         else:
             photresult = photor( image, mask=mask, error=noise, init_params=init_params )
             m.x = photresult['x_fit'][0]
@@ -292,6 +294,9 @@ def photometry( image, noise, mask, positions, apers, measurements=None,
             else:
                 measurements[j].flux_apertures[i] = apphot['aperture_sum'][j]
             measurements[j].flux_apertures_err[i] = apphot['aperture_sum_err'][j]
+            # gah... these aren't here yet.  We're going to have to wait until
+            #   there's a photutils new enough to have AperturePhotometry.  3.0.0 isn't it.
+            # measurements[j].apertures_flags[i] = apphot['flags'][j]
     SCLogger.debug( "...done with aperture photometry" )
 
     if return_cutouts:
@@ -302,7 +307,7 @@ def photometry( image, noise, mask, positions, apers, measurements=None,
         return measurements
 
 
-def diagnostics( measurements, cutouts, noise_cutouts, mask_cutouts, fwhm_pixels,
+def diagnostics( measurements, positions, cutouts, noise_cutouts, mask_cutouts, fwhm_pixels,
                  diagdist=2, distunit='fwhm', n_sigma_outlier=2. ):
     """Measure morphological and diagnostic properties of cutouts and Measurements.
 
@@ -350,6 +355,14 @@ def diagnostics( measurements, cutouts, noise_cutouts, mask_cutouts, fwhm_pixels
       measurements : list of Measurement
         Such as might have been returned from photometry (above).  The
         Measurement objects in this list will be modified; see above.
+
+      positions : List of 2-element tuples (or similar)
+        A sequence of positions where the objects were originally
+        detected.  Must be such that positions[n] is a 2-element
+        sequence with (x,y) positions.  These positions could be
+        different from m.x, m.y for m in measurements becasue the latter
+        is the result of a PSF fit, and exactly where the detections
+        happen depend on the subtraction and detection algorithms.
 
       cutouts : list of 2d ndarrays or 3d ndarray
         cutouts[i] is a square cutout from the image that goes with
@@ -402,8 +415,8 @@ def diagnostics( measurements, cutouts, noise_cutouts, mask_cutouts, fwhm_pixels
     dist = diagdist if distunit == 'pixel' else diagdist * fwhm_pixels
     dist = int( np.round( dist ) )
     xvals, yvals = np.meshgrid( range(0,cutouts[0].shape[1]), range(0,cutouts[0].shape[0]) )
-    for i, ( m, cutout, cutout_noise, cutout_mask ) in enumerate( zip( measurements, cutouts, noise_cutouts,
-                                                                       mask_cutouts ) ):
+    for i, ( m, pos, cutout, cutout_noise, cutout_mask ) in enumerate( zip( measurements, positions, cutouts,
+                                                                            noise_cutouts, mask_cutouts ) ):
         # Leave this code here for now; we'll probably
         #   remove it later, but I'm hedging my bets.
         # I found that the moment calculations were very
@@ -526,8 +539,12 @@ def diagnostics( measurements, cutouts, noise_cutouts, mask_cutouts, fwhm_pixels
         gcutout_weight[ bad ] = 0.
 
         fluxguess = m.flux_psf if ( not np.isnan(m.flux_psf) ) else gcutout[~bad].sum()
-        initgauss = photutils.psf.GaussianPSF( flux=fluxguess, x_0=cutout.shape[1] // 2, y_0=cutout.shape[0] // 2,
-                                               x_fwhm=fwhm_pixels, y_fwhm=fwhm_pixels, theta=0. )
+        initgauss = photutils.psf.GaussianPSF( flux=fluxguess,
+                                               x_0=cutout.shape[1] // 2 + m.x - pos[0],
+                                               y_0=cutout.shape[0] // 2 + m.y - pos[1],
+                                               x_fwhm=fwhm_pixels,
+                                               y_fwhm=fwhm_pixels,
+                                               theta=0. )
         initgauss.x_fwhm.fixed = False
         initgauss.y_fwhm.fixed = False
         initgauss.theta.fixed = False
@@ -624,7 +641,7 @@ def photometry_and_diagnostics( image, noise, mask, positions, apers, measuremen
                                    cutouts_size=cutouts_size, return_cutouts=True )
 
     fwhm_pixels = psfobj.fwhm_pixels if psfobj is not None else fwhm_pixels
-    diagnostics( measurements, co['image'], co['noise'], co['mask'], fwhm_pixels,
+    diagnostics( measurements, positions, co['image'], co['noise'], co['mask'], fwhm_pixels,
                  diagdist=diagdist, distunit=distunit, n_sigma_outlier=n_sigma_outlier )
 
     return measurements

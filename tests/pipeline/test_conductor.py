@@ -16,13 +16,13 @@ from models.knownexposure import KnownExposure, PipelineWorker
 
 def test_conductor_not_logged_in( conductor_url ):
     res = requests.post( f"{conductor_url}/conductor/status", verify=False )
-    assert res.status_code == 500
+    assert res.status_code == 422
     assert res.text == "Not logged in"
 
 
 def test_wrong_user( conductor_connector_wrong_user ):
-    with pytest.raises( RuntimeError, match=( r"Got response 500: Action requires user to be in one of the groups "
-                                              r"root, admin" ) ):
+    with pytest.raises( RuntimeError, match=( r"Error response from server: "
+                                              r"Action requires user to be in one of the groups root, admin" ) ):
         _ = conductor_connector_wrong_user.send( 'conductor/status' )
 
 

@@ -415,7 +415,10 @@ class GetKnownExposures( ConductorBaseView ):
                                               "state": None,
                                               "maxclaimtime": None,
                                               "provtag": None,
-                                              "types": None
+                                              "types": None,
+                                              "ra": None,
+                                              "dec": None,
+                                              "radius": None
                                              } )
         args['minmjd'] = float( args['minmjd'] ) if args['minmjd'] is not None else None
         args['maxmjd'] = float( args['maxmjd'] ) if args['maxmjd'] is not None else None
@@ -557,7 +560,26 @@ class GetKnownExposures( ConductorBaseView ):
                 q += sql.SQL( "{_and} ke._type=ANY(ARRAY[{types}])\n"
                              ).format( _and=_and,
                                        types=sql.SQL(",").join( types ) )
-                _and = "AND"
+                _and = sql.SQL( "  AND" )
+        if any( args[a] is not None for a in ('ra', 'dec', 'radius') ):
+            if not all( args[a] is not None for a in ('ra', 'dec', 'radius') ):
+                raise RuntimeError( "If you give any of ra, dec, radius, must give all." )
+            try:
+                ra = float( args['ra'] )
+                dec = float( args['dec'] )
+                radius = float( args['radius'] )
+            except Exception:
+                raise RuntimeError( f'ra, dec, and radius must all be floats, '
+                                    f'got ("{args["ra"]}", "{args["dec"]}", "{args["radius"]}")' )
+            if ( ra < 0 ) or ( ra >= 360 ) or ( dec < -90 ) or ( dec > 90 ):
+                raise RuntimeError( f"Invalid ra, dec ({ra:.4f}, {dec:.4f})" )
+            if radius <= 0:
+                raise RuntimeError( f"radius must be positive, got {radius:.4f}" )
+            if radius > 20.:
+                raise RuntimeError( f"radius must be ≤ 20°, got {radius:.4f}" )
+            q += sql.SQL( "{_and} q3c_radial_query(ke.ra,ke.dec,{ra},{dec},{radius})"
+                         ).format( ra=ra, dec=dec, radius=radius, _and=_and )
+            _and = sql.SQL( "  AND" )
 
         if args['provtag'] is not None:
             q += sql.SQL( "GROUP BY ke._id, e._id, e.filepath\n" )

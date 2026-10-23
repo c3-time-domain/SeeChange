@@ -2,17 +2,21 @@ webap:
   webap_url: https://webap:8081/
   flask_secret_key: 'dgzd0wy04gr83pkttq9md13rl1xe0f3n9jnk5tbtpfzflfh4gcmyhjal28g4d4om'
   flask_secret_key_file: null
-  verbose: false
+  verbose: true
+  # verbose: false
 
 path:
-  data_root: /tmp
+  # data_root: /tmp
+  # I AM A LITTLE AFRID OF THIS.  We should probably make sure the webap
+  #   always mounts the archive directory readonly.
+  data_root: /archive-storage-ro/base/test
   data_temp: /tmp
 
-# storage:
-#   images:
-#     format: fits
-#     single_file: false
-#     name_convention: "{ra_int:03d}/{inst_name}_{date}_{time}_{section_id}_{filter}_{im_type}_{prov_hash:.6s}"
+storage:
+  images:
+    format: fits
+    single_file: false
+    name_convention: "{ra_int:03d}/{inst_name}_{date}_{time}_{section_id}_{filter}_{im_type}_{prov_hash:.6s}"
 
 db:
   engine: postgresql+psycopg
@@ -37,8 +41,11 @@ db:
   
   
 archive:
+  path_base: test/
+  token: insecure
   archive_url: null
-  local_read_dir: /archive-storage/base/test
+  local_read_dir: /archive-storage-ro/base
+  local_write_dir: /archive-storage/base
 
 email:
   email_from: 'Seechange <nobody@nowhere.org>'

@@ -72,7 +72,8 @@ from util.util import asUUID, NumpyAndUUIDJsonEncoder, listify, retry_with_sleep
 
 
 # this is the root SeeChange folder
-CODE_ROOT = os.path.abspath(os.path.join(__file__, os.pardir, os.pardir))
+# os.path.abspath(os.path.join(__file__, os.pardir, os.pardir))
+CODE_ROOT = pathlib.Path( __file__ ).parent.parent.resolve()
 #
 # # printout the list of relevant environmental variables:
 # import io
@@ -739,7 +740,30 @@ class SeeChangeBase:
 
     type_annotation_map = { UUID: sqlUUID }
 
+    @classmethod
+    def create( cls, create_uuidify=True, **kwargs ):
+        """Create an object.  Usually use this instead of the object constructor directly.
+
+        For most objects, it just calls the object constructor.  Some classes may subclass this
+        so that they can create objects of different classes based on what's passed.
+
+        """
+        if create_uuidify:
+            mess = sa.inspect( cls )
+            knowncols = { c.name: c for c in mess.columns }
+            for k in kwargs:
+                if ( k in knowncols ) and ( isinstance( knowncols[k].type, sqlUUID ) ):
+                    kwargs[k] = None if kwargs[k] is None else asUUID( kwargs[k] )
+        return cls( **kwargs )
+
     def __init__(self, **kwargs):
+        # THIS NEXT ONE IS ILL-CONSIDERED.
+        # For it to really be right, we need to go everywhere through the code
+        #    and make sure we're setting it.  Perhaps this worked if you only
+        #    ever used SQLAlchemy to pull things from the database (in which case
+        #    __init__ isn't called), but that would be such a nightmare world to
+        #    live in that I don't even want to think about it.
+        # Should be removed as part if Issue #516.
         self.from_db = False  # let users know this object was newly created
 
         if hasattr(self, '_bitflag'):
@@ -882,7 +906,7 @@ class SeeChangeBase:
         return cols, values
 
 
-    def insert( self, session=None, nocommit=False ):
+    def insert( self, pgdb=None, session=None, nocommit=False, load_defaults=False ):
         """Insert the object into the database.
 
         Does not do any saving to disk, only saves the database record.
@@ -898,56 +922,61 @@ class SeeChangeBase:
 
         Parameters
         ----------
-          session: PGDB, psycopg.Connection, psycogp.Cursor, or sqlalchemy Session, or None
+          pgdb, session: PGDB, psycopg.Connection, psycogp.Cursor, or sqlalchemy Session, or None
             Usually you do not want to pass this; it's mostly for other
-            upsert etc. methods that cascade to this.
+            upsert etc. methods that cascade to this.  The two things
+            are synoyms; if both are given, pgdb takes precedence.
 
           nocommit: bool, default False
             If True, run the statement to insert the object, but don't
             actually commit the database.  Do this if you want the
-            insert to be inside a transaction you've started on session.
+            insert to be inside a transaction you've started on pgdb.
             It doesn't make sense to set nocommit=True unless you've
-            passed something in session.
+            passed something in pgdb.
+
+          load_defaults: bool, default False
+            Normally, will *not* update self's fields with server
+            default values.  Set this to True for that to happen.  (This
+            will trigger an additional read from the database.)
 
         """
 
+        pgdb = pgdb if pgdb is not None else session
+
         _ = self.id    # Make sure id is generated
 
-        # Doing this manually for a few reasons.  First, doing a
-        #  Session.add wasn't always just doing an insert, but was doing
-        #  other things like going to the database and checking if it
-        #  was there and merging, whereas here we want an exception to
-        #  be raised if the row already exists in the database.  Second,
-        #  to work around that, we did orm.make_transient( self ), but
-        #  that wiped out the _id field, and I'm nervous about what
-        #  other unintended consequences calling that SQLA function
-        #  might have.  Third, now that we've moved defaults to be
-        #  database-side defaults, we'll get errors from SQLA if those
-        #  fields aren't filled by trying to do an add, whereas we
-        #  should be find with that as the database will just load
-        #  the defaults.
-        #
-        # In any event, doing this manually dodges any weirdness associated
-        #  with objects attached, or not attached, to sessions.
-        #
-        # (Even better, unless a sa Session is passed, bypass sqlalchemy
-        # altogether by just usgin PGDB.)
+        # Do this manually.  SQLAlchemy's Session.add was doing all
+        # kinds of stuff behind the scenes that made it impossible to
+        # really know what was happening to the database, was raising
+        # errors, and was generally doing all the things that make me
+        # wish that I had never even heard of SQLAlchemy in the first
+        # place.  We *want* an exception if we try to insert something
+        # that just already exists.
 
         cols, values = self._get_cols_and_vals_for_insert()
         subdict = { c: v for c,v in zip( cols, values ) if c != 'modified' }
 
-        with PGDB( session ) as pgdb:
+        with PGDB( pgdb ) as pgdb:
             q = sql.SQL( "INSERT INTO {tab}({fields}) VALUES ({vals})"
                         ).format( tab=sql.Identifier(self.__tablename__),
                                   fields=sql.SQL(",").join( sql.Identifier(c) for c in subdict.keys() ),
                                   vals=sql.SQL(",").join( sql.SQL(f'%({c})s') for c in subdict.keys() )
                                  )
             pgdb.execute_nofetch( q, subdict )
+
+            if load_defaults:
+                dbobj = self.__class__.get_by_id( self.id, pgdb=pgdb )
+                for col in sa.inspect( self.__class__ ).c:
+                    if ( ( col.name == 'modified' ) or
+                         ( ( col.server_default is not None ) and ( getattr( self, col.name ) is None ) )
+                        ):
+                        setattr( self, col.name, getattr( dbobj, col.name ) )
+
             if not nocommit:
                 pgdb.commit()
 
 
-    def upsert( self, session=None, load_defaults=False ):
+    def upsert( self, pgdb=None, session=None, load_defaults=False, nocommit=False ):
         """Insert an object into the database, or update it if it's already there (using _id as the primary key).
 
         Will *not* update self's fields with server default values!
@@ -967,8 +996,9 @@ class SeeChangeBase:
 
         Parameters
         ----------
-          session: PGDB, psycopg.Connect, psycopg.Cursor, sa.orm.session.Session, or None
-            Usually you don't want to pass this.
+          pgdb, session: PGDB, psycopg.Connect, psycopg.Cursor, sa.orm.session.Session, or None
+            Usually you don't want to pass this.  The two arguments are
+            synonyms; if both are given, will use pgdb.
 
           load_defaults: bool, default False
             Normally, will *not* update self's fields with server
@@ -1018,9 +1048,10 @@ class SeeChangeBase:
                     conflict=sql.SQL(",").join( sql.SQL(f"{{c}}=%({c})s").format( c=sql.Identifier(c) )
                                                 for c in conflictdict )
                    )
-        with PGDB( session ) as pgdb:
+        with PGDB( pgdb if pgdb is not None else session ) as pgdb:
             pgdb.execute_nofetch( q, subdict )
-            pgdb.commit()
+            if not nocommit:
+                pgdb.commit()
 
             if load_defaults:
                 dbobj = self.__class__.get_by_id( self.id, pgdb=pgdb )
@@ -1032,7 +1063,81 @@ class SeeChangeBase:
 
 
     @classmethod
-    def upsert_list( cls, objects, session=None, load_defaults=False ):
+    def insert_list( cls, objects, pgdb=None, session=None, load_defaults=False, upsert=False, nocommit=False ):
+        """Like upsert, but for a bunch of objects in a list, and tries to be sorta efficient about it.
+
+        Do *not* use this with classes that have things like association
+        tables that need to get updated (i.e. with Image, maybe
+        eventually some others).
+
+        All reference fields (ids of other objects) of the objects must
+        be up to date.  If the referenced objects don't exist in the
+        database already, you'll get integrity errors.
+
+        Will update object id fields, but will not update any other
+        object fields with database defaults.  Reload the rows from the
+        table if that's what you need.
+
+        "sorta efficient": it does it all in one transaction, but it
+        issues a separate "INSERT" for each object in the list.  Use
+        this for small numbers of things to insert (no more than of
+        order 10¹, say).  For larger numbers, you really want to be
+        using a PostgreSQL COPY.
+
+        """
+
+        if not all( [ isinstance( o, cls ) for o in objects ] ):
+            raise TypeError( f"{cls.__name__}.upsert_list: passed objects weren't all of this class!" )
+
+        if nocommit and ( pgdb is None ) and ( session is None ):
+            raise ValueError( "If you set nocommit=True, you must pass a pgdb" )
+
+        with PGDB( pgdb if pgdb is not None else session ) as pgdb:
+            for obj in objects:
+                _ = obj.id                 #  Make sure _id is generated
+                cols, values = obj._get_cols_and_vals_for_insert()
+                subdict = { c: v for c, v in zip( cols, values ) }
+                subdict['modified'] = datetime.datetime.now( tz=datetime.UTC )
+                basicdict = subdict.copy()
+                del basicdict['modified']
+                if upsert:
+                    conflictclause = ( sql.SQL( "ON CONFLICT(_id) DO UPDATE SET {conflict}" )
+                                       .format(
+                                           conflict=sql.SQL(",").join(
+                                               sql.SQL(f"{{c}}=%({c})s").format( c=sql.Identifier(c) )
+                                               for c in subdict.keys() if c != '_id' )
+                                       )
+                                      )
+                else:
+                    conflictclause = sql.SQL( "" )
+
+
+                q = sql.SQL( textwrap.dedent(
+                    """\
+                    INSERT INTO {tab}({fields})
+                    VALUES ({vals})
+                    {conflictclause}
+                    """
+                ) ).format( tab=sql.Identifier(cls.__tablename__),
+                            fields=sql.SQL(",").join( sql.Identifier(c) for c in basicdict.keys() ),
+                            vals=sql.SQL(",").join( sql.SQL(f'%({c})s') for c in basicdict.keys() ),
+                            conflictclause=conflictclause )
+                pgdb.execute_nofetch( q, subdict )
+            if not nocommit:
+                pgdb.commit()
+
+            if load_defaults:
+                for obj in objects:
+                    dbobj = obj.__class__.get_by_id( obj.id, pgdb=pgdb )
+                    for col in sa.inspect( obj.__class__).c:
+                        if ( ( col.name == 'modified' ) or
+                             ( ( col.server_default is not None ) and ( getattr( obj, col.name ) is None ) )
+                            ):
+                            setattr( obj, col.name, getattr( dbobj, col.name ) )
+
+
+    @classmethod
+    def upsert_list( cls, objects, pgdb=None, session=None, load_defaults=False ):
         """Like upsert, but for a bunch of objects in a list, and tries to be efficient about it.
 
         Do *not* use this with classes that have things like association
@@ -1049,46 +1154,7 @@ class SeeChangeBase:
 
         """
 
-        # Doing this manually for the same reasons as in upset()
-
-        if not all( [ isinstance( o, cls ) for o in objects ] ):
-            raise TypeError( f"{cls.__name__}.upsert_list: passed objects weren't all of this class!" )
-
-        with PGDB( session ) as pgdb:
-            for obj in objects:
-                _ = obj.id                 #  Make sure _id is generated
-                cols, values = obj._get_cols_and_vals_for_insert()
-                subdict = { c: v for c, v in zip( cols, values ) }
-                subdict['modified'] = datetime.datetime.now( tz=datetime.UTC )
-                basicdict = subdict.copy()
-                del basicdict['modified']
-                conflictdict = subdict.copy()
-                if '_id' in conflictdict:
-                    del conflictdict['_id']
-
-                q = sql.SQL( textwrap.dedent(
-                    """\
-                    INSERT INTO {tab}({fields})
-                    VALUES ({vals})
-                    ON CONFLICT(_id) DO UPDATE SET {conflict}
-                    """
-                ) ).format( tab=sql.Identifier(cls.__tablename__),
-                            fields=sql.SQL(",").join( sql.Identifier(c) for c in basicdict.keys() ),
-                            vals=sql.SQL(",").join( sql.SQL(f'%({c})s') for c in basicdict.keys() ),
-                            conflict=sql.SQL(",").join( sql.SQL(f"{{c}}=%({c})s").format( c=sql.Identifier(c) )
-                                                        for c in conflictdict.keys() )
-                           )
-                pgdb.execute_nofetch( q, subdict )
-            pgdb.commit()
-
-            if load_defaults:
-                for obj in objects:
-                    dbobj = obj.__class__.get_by_id( obj.id, pgdb=pgdb )
-                    for col in sa.inspect( obj.__class__).c:
-                        if ( ( col.name == 'modified' ) or
-                             ( ( col.server_default is not None ) and ( getattr( obj, col.name ) is None ) )
-                            ):
-                            setattr( obj, col.name, getattr( dbobj, col.name ) )
+        cls.insert_list( objects, pgdb=pgdb, session=session, load_defaults=load_defaults, upsert=True )
 
 
     def _delete_from_database( self, pgdb=None ):
@@ -1121,28 +1187,28 @@ class SeeChangeBase:
         """Get a list of tuples of (type, id) for all direct upstreams of this object (non-recursive)."""
         raise NotImplementedError( f'get_upstream_ids not implemented for this {self.__class__.__name__}' )
 
-    def get_upstreams(self, session=None):
+    def get_upstreams(self, nofile=False, pgdb=None, session=None):
         """Get all data products that were directly used to create this object (non-recursive)."""
         upstreams = []
-        with PGDB( session, dictcursor=True ) as pgdb:
-            upstream_info = self.get_upstream_ids( pgdb)
+        with PGDB( pgdb if pgdb is not None else session, dictcursor=True ) as pgdb:
+            upstream_info = self.get_upstream_ids( pgdb=pgdb )
             for cls, upid in upstream_info:
                 q = sql.SQL( "SELECT * FROM {tab} WHERE _id={objid}" ).format( tab=sql.Identifier(cls.__tablename__),
                                                                                objid=upid )
                 rows = pgdb.execute( q )
                 if len(rows) != 1:
                     raise RuntimeError( "This should never happen." )
-                upstreams.append( cls( **(rows[0]) ) )
+                upstreams.append( cls.create( pgdb=pgdb, nofile=nofile, **(rows[0]) ) )
         return upstreams
 
     def get_downstream_ids(self, pgdb=None):
         """Get a list of tuples of (type, id) for all direct downstreams of this object (non-recursive)."""
         raise NotImplementedError( f'get_downstream_ids not implemented for this {self.__class__.__name__}' )
 
-    def get_downstreams(self, session=None):
+    def get_downstreams(self, pgdb=None, session=None):
         """Get all data products that were created directly from this object (non-recursive)."""
         downstreams = []
-        with PGDB( session, dictcursor=True ) as pgdb:
+        with PGDB( pgdb if pgdb is not None else session, dictcursor=True ) as pgdb:
             downstream_info = self.get_downstream_ids( pgdb )
             for cls, dwnid in downstream_info:
                 q = sql.SQL( "SELECT * FROM {tab} WHERE _id={objid}" ).format( tab=sql.Identifier(cls.__tablename__),
@@ -1150,7 +1216,7 @@ class SeeChangeBase:
                 rows = pgdb.execute( q )
                 if len(rows) != 1:
                     raise RuntimeError( "This should never happen." )
-                downstreams.append( cls( **(rows[0]) ) )
+                downstreams.append( cls.create( pgdb=pgdb, **(rows[0]) ) )
         return downstreams
 
     def delete_everything_in_provtag( self, tag, models=[], remove_folders=True,
@@ -1385,7 +1451,7 @@ class SeeChangeBase:
         if created_at is not None:
             dictionary['created_at'] = datetime.datetime.fromisoformat(created_at)
 
-        return cls(**dictionary)
+        return cls.create(**dictionary)
 
     def to_json(self, filename):
         """Translate a row object's column values to a JSON file.
@@ -1568,61 +1634,58 @@ class FileOnDiskMixin:
     @classmethod
     def configure_paths(cls):
         cfg = config.Config.get()
+
+        # This is where paths in the database are relative to on the local system
         cls.local_path = cfg.value('path.data_root', None)
 
         if cls.local_path is None:
             cls.local_path = cfg.value('path.data_temp', None)
         if cls.local_path is None:
-            cls.local_path = os.path.join(CODE_ROOT, 'data')
+            cls.local_path = CODE_ROOT / 'data'
 
-        if not os.path.isabs(cls.local_path):
-            cls.local_path = os.path.join(CODE_ROOT, cls.local_path)
-        if not os.path.isdir(cls.local_path):
-            os.makedirs(cls.local_path, exist_ok=True)
+        cls.local_path = pathlib.Path( cls.local_path ).resolve()
+        if cls.local_path.exists():
+            if not cls.local_path.is_dir():
+                raise RuntimeError( f"path.data_root {cls.local_path} exists but is not a directory!" )
+        else:
+            cls.local_path.mkdir( parents=True, exist_ok=True )
 
-        # use this to store temporary files (scratch files)
+        # Use this to store temporary files (scratch files)
         cls.temp_path = cfg.value('path.data_temp', None)
         if cls.temp_path is None:
-            cls.temp_path = os.path.join(CODE_ROOT, 'data')
+            cls.temp_path = CODE_ROOT / 'data'
+        else:
+            cls.temp_path = pathlib.Path( cls.temp_path ).resolve()
 
-        if not os.path.isabs(cls.temp_path):
-            cls.temp_path = os.path.join(CODE_ROOT, cls.temp_path)
-        if not os.path.isdir(cls.temp_path):
-            os.makedirs(cls.temp_path, exist_ok=True)
+        if cls.temp_path.exists():
+            if not cls.temp_path.is_dir():
+                raise RuntimeError( f"path.data_temp {cls.temp_path} exists but is not a directory!" )
+        else:
+            cls.temp_path.mkdir( parents=True, exist_ok=True )
+
 
     @classmethod
     def safe_mkdir(cls, path):
         if path is None or path == '':
             return  # ignore empty paths, we don't need to make them!
-        cfg = config.Config.get()
+        path = pathlib.Path( path )
 
-        allowed_dirs = []
+        allowed_dirs = set()
         if cls.local_path is not None:
-            allowed_dirs.append(cls.local_path)
-        temp_path = cfg.value('path.data_temp', None)
-        if temp_path is not None:
-            allowed_dirs.append(temp_path)
+            allowed_dirs.add(cls.local_path)
+        if cls.temp_path is not None:
+            allowed_dirs.add(cls.temp_path)
 
-        allowed_dirs = list(set(allowed_dirs))
+        if not any( path.is_relative_to(d) for d in allowed_dirs ):
+            nl = "\n    "
+            raise ValueError( f"Cannot make a new directory not beneath one of the following:\n"
+                              f"    {nl.join(allowed_dirs)}\n\nAttempted directory: {path}" )
 
-        ok = False
-
-        for d in allowed_dirs:
-            parent = os.path.realpath(os.path.abspath(d))
-            child = os.path.realpath(os.path.abspath(path))
-
-            if os.path.commonpath([parent]) == os.path.commonpath([parent, child]):
-                ok = True
-                break
-
-        if not ok:
-            err_str = "Cannot make a new folder not inside the following folders: "
-            err_str += "\n".join(allowed_dirs)
-            err_str += f"\n\nAttempted folder: {path}"
-            raise ValueError(err_str)
-
-        # if the path is ok, also make the subfolders
-        os.makedirs(path, exist_ok=True)
+        if path.exists():
+            if not path.is_dir():
+                raise RuntimeError( f"safe_mkdir: path {path} exists but is not a directory." )
+        else:
+            path.mkdir( parents=True, exist_ok=True )
 
     @declared_attr
     def filepath(cls):  # noqa: N805
@@ -1721,32 +1784,50 @@ class FileOnDiskMixin:
         return True
 
     def __setattr__(self, key, value):
-        if key == 'filepath' and isinstance(value, str):
-            value = self._validate_filepath(value)
+        if key == 'filepath' and isinstance(value, (str,pathlib.Path)):
+            # THOUGH REQUIRED : do we want to start making all paths Paths?
+            #   Almost certainly lots of code will need to be edited.
+            value = str( self._validate_filepath(value) )
 
         super().__setattr__(key, value)
 
-    def _validate_filepath(self, filepath):
+    def set_filepath( self, filepath, must_be_valid=True ):
+        filepath = str( self._validate_filepath( filepath, must_be_valid=must_be_valid ) )
+        super().__setattr__( 'filepath', filepath )
+
+    def _validate_filepath(self, filepath, must_be_valid=True):
         """Make sure the filepath is legitimate.
 
-        If the filepath starts with the local path
-        (i.e., an absolute path is given) then
-        the local path is removed from the filepath,
-        forcing it to be a relative path.
+        If the path is underneath self.local_path (which comes from
+        path.data_root in the config), then return the path relative to
+        that directory.  Otherwise, just return the path that was
+        passed.
 
         Parameters
         ----------
-        filepath: str
+        filepath: str or pathlib.Path
             The filepath to validate.
+
+        must_be_valid: bool, default False
+            If filepath is absolute and not relative to self.local_path,
+            raise an exception.
 
         Returns
         -------
-        filepath: str
-            The validated filepath.
-        """
-        if filepath.startswith(self.local_path):
-            filepath = filepath[len(self.local_path) + 1:]
+        filepath: pathlib.Path
+            The filepath relative to self.local_path
 
+            If must_be_valid is False, filepath is absolute, and
+            filepath is not underneath self.local_path, then just return
+            a pathlib.Path version of filepath.
+
+        """
+        filepath = pathlib.Path( filepath )
+        if filepath.is_absolute():
+            if filepath.is_relative_to( self.local_path ):
+                filepath = filepath.relative_to( self.local_path )
+            elif must_be_valid:
+                raise ValueError( f"Path {filepath} is not underneath path.data_root {self.local_path}" )
         return filepath
 
     def _file_suffix( self, comp=None ):
@@ -1922,17 +2003,20 @@ class FileOnDiskMixin:
             fname += f'.{comp}{self._file_suffix(comp)}'
 
         downloaded = False
-        fullname = os.path.join(self.local_path, fname)
-        if ( not nofile ) and ( not os.path.exists(fullname) ) and download and ( self.archive is not None ):
-            if md5sum is None:
-                raise RuntimeError(f"Don't have md5sum in the database for {fname}, can't download")
-            self.archive.download( fname, fullname, verifymd5=True, clobbermismatch=False, mkdir=True )
-            downloaded = True
+        fullname = self.local_path / fname
 
         if not nofile:
-            if not os.path.exists(fullname):
+            if ( not fullname.exists() ) and download and ( self.archive is not None ):
+                if md5sum is None:
+                    raise RuntimeError(f"Don't have md5sum in the database for {fname}, can't download")
+                self.archive.download( fname, fullname, verifymd5=True, clobbermismatch=False, mkdir=True )
+                downloaded = True
+
+            if not fullname.exists():
                 raise FileNotFoundError(f"File {fullname} not found!")
-            elif always_verify_md5 and not downloaded and md5sum is not None:
+            elif not fullname.is_file():
+                raise FileNotFoundError( f"File {fullname} exists but is not a file!" )
+            elif always_verify_md5 and ( not downloaded ) and ( md5sum is not None ):
                 # self.archive.download will have already verified the md5sum
                 filemd5 = hashlib.md5()
                 with open(fullname, "rb") as ifp:
@@ -1942,10 +2026,10 @@ class FileOnDiskMixin:
                     raise ValueError( f"{fname} has md5sum {localmd5} on disk, which doesn't match the "
                                       f"database value of {md5sum}" )
 
-        return fullname
+        return str( fullname )
 
 
-    def save(self, data, component=None, overwrite=True, exists_ok=True, verify_md5=True, no_archive=False ):
+    def save(self, data, component=None, overwrite=True, exists_ok=True, verify_md5=True, no_archive=False):
         """Save a file to disk, and to the archive.
 
         Does not write anything to the database.  (At least, it's not supposed to....)
@@ -2250,16 +2334,14 @@ class FileOnDiskMixin:
         if self.filepath is not None:
             # get the filepath, but don't check if the file exists!
             for f in self.get_fullpath(as_list=True, nofile=True):
-                if os.path.exists(f):
-                    os.remove(f)
+                f = pathlib.Path( f )
+                if f.exists():
+                    f.unlink()
                     if remove_folders:
-                        folder = f
-                        for i in range(10):
-                            folder = os.path.dirname(folder)
-                            if len(os.listdir(folder)) == 0:
-                                os.rmdir(folder)
-                            else:
-                                break
+                        par = f.parent
+                        while not any( par.iterdir() ):
+                            par.rmdir()
+                            par = par.parent
 
 
 # load the default paths from the config
@@ -2342,6 +2424,9 @@ class UUIDMixin:
 
         """
 
+        # We will raise an exception here if the parameter uuid isn't a valid representation of a uuid
+        uuid = asUUID( uuid )
+
         with PGDB( (pgdb if pgdb is not None else session), dictcursor=True ) as pgdb:
             q = sql.SQL( "SELECT * FROM {table} WHERE _id=%(id)s" ).format( table=sql.Identifier(cls.__tablename__) )
             rows = pgdb.execute( q, { 'id': uuid } )
@@ -2352,7 +2437,7 @@ class UUIDMixin:
             else:
                 kwargs = kwargs.copy()
                 kwargs.update( rows[0] )
-                obj = cls( **kwargs )
+                obj = cls.create( pgdb=pgdb, **kwargs )
                 obj.from_db = True
                 return obj
 
@@ -2387,10 +2472,10 @@ class UUIDMixin:
                                   ids=sql.SQL(",").join(uuids) )
             rows = pgdb.execute( q )
 
-        if return_dict:
-            return { r['_id']: cls(**r) for r in rows }
-        else:
-            return [ cls(**r) for r in rows ]
+            if return_dict:
+                return { r['_id']: cls.create(pgdb=pgdb, **r) for r in rows }
+            else:
+                return [ cls.create(pgdb=pgdb, **r) for r in rows ]
 
 
     @classmethod
@@ -2416,7 +2501,7 @@ class UUIDMixin:
                                  .format( tab=sql.Identifier(cls.__tablename__),
                                           field=sql.Identifier(field),
                                           vals=sql.SQL(",").join(values) ) )
-        return [ cls(**r) for r in rows ]
+        return [ cls.create(pgdb=pgdb, **r) for r in rows ]
 
 
 
@@ -2485,7 +2570,7 @@ class SpatiallyIndexed:
             q = q.format( tab=sql.Identifier(cls.__tablename__), ra=ra, dec=dec, rad=radius/3600. )
             rows = pgdb.execute( q )
 
-        return [ cls(**row) for row in rows ]
+        return [ cls.create(pgdb=pgdb, **row) for row in rows ]
 
 
     @hybrid_method
@@ -2887,7 +2972,7 @@ class FourCorners:
                         ra=ra, dec=dec )
 
             rows = pgdb.execute( q )
-            objs = [ cls(**r) for r in rows ]
+            objs = [ cls.create(pgdb=pgdb, **r) for r in rows ]
             pgdb.execute_nofetch( sql.SQL( "DROP TABLE {temptable}" ).format( temptable=sql.Identifier(temptable) ) )
             return objs
 
@@ -3036,7 +3121,7 @@ class FourCorners:
             rows = pgdb.execute( sql.SQL( "SELECT i.* FROM {tab} i INNER JOIN {temptable} t ON i._id=t._id" )
                                  .format( tab=sql.Identifier(cls.__tablename__),
                                           temptable=sql.Identifier(temptable) ) )
-            objs = [ cls(**r) for r in rows ]
+            objs = [ cls.create(pgdb=pgdb, **r) for r in rows ]
             pgdb.execute_nofetch( sql.SQL( "DROP TABLE {temptable}" ).format( temptable=sql.Identifier(temptable) ) )
             return objs
 

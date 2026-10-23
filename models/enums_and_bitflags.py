@@ -158,6 +158,9 @@ class CutoutsFormatConverter( FormatConverter ):
 
 class SourceListFormatConverter( EnumConverter ):
     _dict = {
+        0: 'null',    # Not actually a source list, but a database entry that allows us to directly associate
+                      # a WorldCoordinates with an image without having to completely redesign our whole
+                      # database structure
         1: 'sepnpy',
         2: 'sextrfits',
         3: 'filter',  # when manually constructing a source table from a matched-filter image (e.g., on the subtraction)
@@ -187,6 +190,17 @@ class ImageTypeConverter( EnumConverter ):
         15: 'Fringe',
         16: 'Warped',
         17: 'ComWarped',
+        18: 'DiffWarped',
+        19: 'ComDiffWarped',
+        20: 'ExternComSci',    # "Extern" means externally, so components shouldn't be expected in our database
+        21: 'ExternComDiff',   # Probably only ExternComSci, ExternComBias, ExternComDark, and ExternCom*Flat
+        22: 'ExternComBias',   #   should ever be used; I *guess* we might import an external difference image.
+        23: 'ExternComDark',
+        24: 'ExternComDomeFlat',
+        25: 'ExternComSkyFlat',
+        26: 'ExternComTwiFlat',
+        27: 'ExternComWarped',
+        28: 'ExternComDiffWarped'
     }
     _allowed_values = None
     _dict_filtered = None
@@ -490,6 +504,45 @@ measurements_badness_dict = {
 }
 measurements_badness_inverse = {EnumConverter.c(v): k for k, v in measurements_badness_dict.items()}
 
+# These are the meanings of the photflags bits in DiaForcedPhot
+psf_phot_flags_dict = {
+    # This first set of flags comes from photutils.psf
+    #  ( cf: https://photutils.readthedocs.io/en/3.0.0/api/photutils.psf.decode_psf_flags.html )
+    0: 'n_pixels_fit_partial', # : bit 1, n_pixels_fit smaller than full fit_shape region
+    1: 'outside_bounds', # : bit 2, fitted position outside input image bounds
+    2: 'negative_flux', # : bit 4, non-positive flux
+    3: 'no_convergence', # : bit 8, possible non-convergence
+    4: 'no_covariance', # : bit 16, missing parameter covariance
+    5: 'near_bound', # : bit 32, fitted parameter near a bound
+    6: 'no_overlap', # : bit 64, no overlap with data
+    7: 'fully_masked', # : bit 128, fully masked source
+    8: 'too_few_pixels', # : bit 256, too few pixels for fitting
+    9: 'non_finite_position', # : bit 512, non-finite fitted position
+    10: 'non_finite_flux', # : bit 1024, non-finite fitted flux
+    11: 'non_finite_localbkg', # : bit 2048, non-finite local background
+}
+psf_phot_flags_inverse = {EnumConverter.c(v): k for k, v in psf_phot_flags_dict.items()}
+
+aper_phot_flags_dict = {
+    # These flags come from photutils.aperture, adding 16
+    # ( cf: https://photutils.readthedocs.io/en/latest/api/photutils.aperture.decode_aperture_flags.html )
+    0: 'no_overlap',
+    1: 'partial_overlap',
+    2: 'no_pixels',
+    3: 'masked_pixels',
+    4: 'non_finite_data',
+    5: 'non_finite_error',
+    6: 'neighbor_pixels',
+    7: 'uncorrected_pixels',
+    8: 'all_masked',
+    9: 'sigma_clipped',
+    10: 'all_clipped',
+    11: 'too_few_pixels',
+    12: 'undefined_shape',
+    13: 'singular_covariance',
+    14: 'centroid_outside_bbox'
+}
+aper_phot_flags_inverse = {EnumConverter.c(v) for k, v in aper_phot_flags_dict.items()}
 
 # join the badness:
 data_badness_dict = {}

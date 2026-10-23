@@ -1,10 +1,12 @@
 import { seechange } from "./seechange_ns.js"
 import { rkAuth } from "./rkauth.js"
 import { rkWebUtil } from "./rkwebutil.js";
+import { ImView } from "./imview.js";
 import "./provenancetags.js";
 import "./exposuresearch.js";
 import "./exposurelist.js";
 import "./exposure.js";
+import "./diaforcedphot.js"
 import "./conductor.js";
 
 // Everything is going in the seechange namespace
@@ -44,9 +46,8 @@ seechange.Context = class
 {
     constructor()
     {
-        this.parentdiv = document.getElementById( "pagebody" );
         this.authdiv = document.getElementById( "authdiv" );
-        this.maindiv = rkWebUtil.elemaker( "div", this.parentdiv, { 'id': 'parentdiv' } );
+        this.maindiv = document.getElementById( "pagebody" );
         this.frontpagediv = null;
 
         // TODO : make this configurable?  Or at least remember how to
@@ -75,7 +76,7 @@ seechange.Context = class
         if ( this.frontpagediv == null ) {
 
             rkWebUtil.wipeDiv( this.authdiv );
-            p = rkWebUtil.elemaker( "p", this.authdiv,
+            p = rkWebUtil.elemaker( "span", this.authdiv,
                                     { "text": "Logged in as " + this.auth.username
                                       + " (" + this.auth.userdisplayname + ") — ",
                                       "classes": [ "italic" ] } );
@@ -85,11 +86,20 @@ seechange.Context = class
                                          "click": () => { self.auth.logout( () => { window.location.reload(); } ) }
                                        } );
 
-            this.frontpagediv = rkWebUtil.elemaker( "div", this.maindiv, { 'id': 'frontpagediv' } );
+            this.frontpagediv = rkWebUtil.elemaker( "div", this.maindiv, { 'id': 'frontpagediv',
+                                                                           'classes': [ 'maindiv' ] } );
 
             p = rkWebUtil.elemaker( "p", this.frontpagediv, { "text": "Use provenance tag: " } );
             this.provtag_wid = rkWebUtil.elemaker( "select", p, { 'id': 'provtag_wid' } );
-            this.connector.sendHttpRequest( "provtags", {}, (data) => { self.populate_provtag_wid(data) } );
+            button = rkWebUtil.button( p, "Refresh Tags", null, [ "marginleftem" ] );
+            this.loading_provtags = rkWebUtil.elemaker( "span", p, { "classes": [ "warning", "bold",
+                                                                                  "italic", "marginleftem" ] } );
+            let callback = (e) => {
+                self.loading_provtags.innerHTML = "Loading provtags...";
+                self.connector.sendHttpRequest( "provtags", {}, (data) => { self.populate_provtag_wid(data) } )
+            };
+            button.addEventListener( "click", callback );
+            callback( null );
 
             this.frontpagetabs = new rkWebUtil.Tabbed( this.frontpagediv );
             this.frontpagetabs.div.setAttribute( 'id', 'frontpagetabs' );
@@ -102,8 +112,11 @@ seechange.Context = class
 
             this.exposuresearch = new seechange.ExposureSearch( this );
             this.exposuresearch.render();
-            this.frontpagetabs.addTab( "exposuresearch", "Exposure Search", this.exposuresearch.div );
+            this.frontpagetabs.addTab( "exposuresearch", "Exposure/Image Search", this.exposuresearch.div );
 
+            this.diaforcedphot = new seechange.DiaForcedPhotSearch( this );
+            this.diaforcedphot.render();
+            this.frontpagetabs.addTab( "diaforcedphot", "DIA Forced Photometry", this.diaforcedphot.div );
 
             this.provenancetags = new seechange.ProvenanceTags( this );
             this.provenancetags.render();
@@ -131,11 +144,31 @@ seechange.Context = class
 
     populate_provtag_wid( data )
     {
+        this.loading_provtags.innerHTML = "";
+        let cursel = this.provtag_wid.value;
+        rkWebUtil.wipeDiv( this.provtag_wid );
         for ( let provtag of data.provenance_tags ) {
-            rkWebUtil.elemaker( "option", this.provtag_wid, { "text": provtag, "attributes": { "value": provtag } } );
+            let option = rkWebUtil.elemaker( "option", this.provtag_wid,
+                                             { "text": provtag, "attributes": { "value": provtag } } );
+            if ( provtag == cursel )
+                option.setAttribute( "selected", "1" );
         }
     };
 
+    _image_data_getter( url )
+    {
+        return async () => {
+            if ( ! ImView.is_little_endian() ) {
+                throw new Error( "This webap doesn't work on a platform that's not little-endian." );
+            }
+            let rval = await this.connector.httpPromise( url, null, false );
+            let dv = new DataView( rval );
+            let height = dv.getUint16( 0, true );
+            let width = dv.getUint16( 2, true );
+            let data = new Float32Array( dv.buffer, 4, ( (dv.byteLength - 4) / 4 ) );
+            return { 'data': data, 'width': width, 'height': height }
+        }
+    }
 
 }
 

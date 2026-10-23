@@ -11,7 +11,7 @@ storage:
     format: fitsfz
     single_file: false
     name_convention: "{inst_name}/{date}/{time}/{inst_name}_{date}_{time}_{section_id}_{filter}_{im_type}_{prov_hash:.6s}"
- 
+
   exposures:
     name_convention: "{inst_name}/exposures/{date}/{inst_name}_{date}_{time}_{prov_hash:.6s}"
 
@@ -20,7 +20,7 @@ conductor:
   username: rknop
   password: null
   password_file: /secrets/ls4-production-webap-rknop
- 
+
 webap:
   webap_url: https://ls4-pipeline.lbl.gov/
 
@@ -57,11 +57,11 @@ flat_bias_builder:
     nmin: 7
     nmax: 21
     savetype: ComBias
-  
+
 pipeline:
   through_step: photocal
   provenance_tag: proc20260903
-  
+
 preprocessing:
   # TODO: this may change later!  We may have linearity, and we may have illumination
   steps_required: [ 'overscan', 'zero', 'flat' ]
@@ -116,7 +116,7 @@ astrocal:
         # #   ra of the telescope vs. where it's *really*
         # #   pointing varies with dec by up to a chip width.
         # astrometry_net_radius: 2.0
-  
+
 photocal:
   subconfigs:
     subconfigs:
@@ -172,7 +172,7 @@ coaddition:
   coaddition:
     method: swarp
     noise_estimator: sep
-    
+
 subtraction:
   refset: FILL THIS IN
   method: zogy
@@ -193,3 +193,31 @@ detection:
 alerts:
   send_alerts: false
   methods: {}
+
+
+lightcurve:
+  zp_prov: null
+  zp_prov_tag: proc20260903
+  object_position_prov: null
+  object_position_prov_tag: null
+  object_position_prov_tag_process: positioning
+  subtraction_config:
+    method: hotpants
+    save_warped_ref: true
+    hotpants_numregions: [1, 1]
+    hotpants_ko: 0
+    hotpants_bgo: 0
+    refset: premayrefltcvref
+    reference:
+      search_by: ra/dec
+      match_instrument: true
+      match_filter: true
+      min_overlap: null
+      max_dist: 0.00833333   # 30¨
+      skip_bad: true
+      multiple_ok: false
+      choice_criteria: [ 'distance', 'unconstrained' ]
+    alignment:
+      method: swarp
+      min_matched: 10
+  crop_image: [ 256, 256 ]

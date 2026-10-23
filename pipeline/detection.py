@@ -251,7 +251,7 @@ class ParsDetector(Parameters):
                         'sextr_threshold': 1.5,
                         'snr_threshold': 3.0,
                         'subtraction': False,
-                        'subtractor_back_type': 'MANUAL',
+                        'sextractor_back_type': 'MANUAL',
                         'sextractor_back_value': 0.,
                         'sextractor_back_size': None,
                         'sextractor_back_filtersize': None,
@@ -731,7 +731,7 @@ class Detector:
             if snr.min() > 0.75 * self.pars.snr_threshold:
                 warnings.warn( "SExtractor may not have detected everything down to your threshold." )
             w = np.where( snr >= self.pars.snr_threshold )
-            SCLogger.debug( f"{len(w[0])} out of {len(sources.data)} sources abuve the SNR cut of "
+            SCLogger.debug( f"{len(w[0])} out of {len(sources.data)} sources above the SNR cut of "
                             f"{self.pars.snr_threshold}" )
             sources.data = sources.data[w]
             sources.num_sources = len( sources.data )

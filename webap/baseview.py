@@ -90,15 +90,18 @@ class BaseView( flask.views.View ):
 
 
     def dispatch_request( self, *args, **kwargs ):
-        if not self.check_auth():
-            return "Not logged in", 500
+        try:
+            if not self.check_auth():
+                return "Not logged in", 422
+        except Exception as ex:
+            return f"Error checking login: {ex}", 422
         if ( self._admin_required ) and ( 'root' not in self.user.groups ):
-            return "Action requires root", 500
+            return "Action requires root", 422
         if ( ( self._any_group_required is not None ) and
              ( not any( [ g in self.user.groups for g in self._any_group_required ] ) )
             ):
             return ( f"Action requires user to be in one of the groups "
-                     f"{', '.join([str(g) for g in self._any_group_required])}", 500 )
+                     f"{', '.join([str(g) for g in self._any_group_required])}", 422 )
 
         try:
             retval = self.do_the_things( *args, **kwargs )

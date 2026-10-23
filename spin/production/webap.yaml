@@ -31,7 +31,7 @@ spec:
         workload.user.cattle.io/workloadselector: deployment-ls4-production-webap
     spec:
       containers:
-      - image: registry.nersc.gov/m4616/seechange-webap:20260901b
+      - image: registry.nersc.gov/m4616/seechange-webap:20261022a
         # command: [ "tail", "-f", "/etc/issue" ]
         imagePullPolicy: IfNotPresent
         name: seechange-webap
@@ -58,6 +58,7 @@ spec:
           name: webap-sessions
         - mountPath: /archive
           name: seechange-archive-dir
+          readOnly: true
       dnsConfig: {}
       dnsPolicy: ClusterFirst
       restartPolicy: Always

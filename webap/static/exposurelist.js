@@ -5,55 +5,30 @@ import { seechange } from "./seechange_ns.js"
 
 seechange.ExposureList = class
 {
-    constructor( context, parent, parentdiv )
+    constructor( context, parent, parenttabs, parentdiv, exposures, fromtime, totime, provtag, projects )
     {
         this.context = context;
         this.parent = parent;
+        this.parenttabs = parenttabs;
         this.parentdiv = parentdiv;
-        this.masterdiv = null;
-        this.listdiv = null;
-        this.exposures = {};
-        this.exposurediv = null;
-        this.exposure_displays = {};
-    };
-
-
-    // **********************************************************************
-
-    new_exposure_list( exposures, fromtime, totime, projects ) {
         this.exposures = exposures;
         this.masterdiv = null;
         this.fromtime = fromtime;
         this.totime = totime;
+        this.provtag = provtag;
         this.projects = projects;
+        this.exposure_displays = {};
         this.render_page();
     }
-
-
-    // **********************************************************************
 
     render_page()
     {
         let self = this;
 
         rkWebUtil.wipeDiv( this.parentdiv );
-
-        if ( this.masterdiv != null ) {
-            this.parentdiv.appendChild( this.masterdiv );
-            return
-        }
-
-        this.masterdiv = rkWebUtil.elemaker( "div", this.parentdiv, { 'id': 'exposurelistmasterdiv' } );
-
-        this.tabbed = new rkWebUtil.Tabbed( this.masterdiv );
-        this.listdiv = rkWebUtil.elemaker( "div", null, { 'id': 'exposurelistlistdiv' } );
-        this.tabbed.addTab( "exposurelist", "Exposure List", this.listdiv, true );
-        this.exposurediv = rkWebUtil.elemaker( "div", null, { 'id': 'exposurelistexposurediv' } );
-        this.tabbed.addTab( "exposuredetail", "Exposure Details", this.exposurediv, false );
-        rkWebUtil.elemaker( "p", this.exposurediv,
-                            { "text": 'No exposure listed; click on an exposure in the "Exposure List" tab.' } );
-
-        let h2 = rkWebUtil.elemaker( "h2", this.listdiv, { "text": "Exposures" } );
+        let div = rkWebUtil.elemaker( "div", this.parentdiv, { 'id': 'epxosurelistdiv',
+                                                               "classes": [ "scrolly" ] } );
+        let h2 = rkWebUtil.elemaker( "h2", div, { "text": "Exposures" } );
         if ( ( this.fromtime == null ) && ( this.totime == null ) ) {
             h2.appendChild( document.createTextNode( " from all time" ) );
         } else if ( this.fromtime == null ) {
@@ -65,10 +40,10 @@ seechange.ExposureList = class
                                                      + this.totime.toFixed(2) ) );
         }
 
-        h2.appendChild( document.createTextNode( " with provenance tag " + this.context.provtag_wid.value ) );
+        h2.appendChild( document.createTextNode( " with provenance tag " + this.provtag ) );
 
-        rkWebUtil.elemaker( "p", this.listdiv,
-                            { "text": '"Detections" are everything found on subtratcions; ' +
+        rkWebUtil.elemaker( "p", div,
+                            { "text": '"Detections" are everything found on subtratctions; ' +
                               '"Sources" are things that passed preliminary cuts.' } )
 
         let rowrenderer = (exps, fields, i) => {
@@ -116,25 +91,23 @@ seechange.ExposureList = class
                                                  'colorclasses': [ 'bgfade', 'bgwhite' ],
                                                  'colorlength': 3 } );
         tab.table.id = 'exposure_list_table';
-        this.listdiv.appendChild( tab.table );
-
+        div.appendChild( tab.table );
     };
 
 
     show_exposure( id, provtag=null )
     {
         let self = this;
-        if ( provtag == null ) provtag = this.context.provtag_wid.value;
+        if ( provtag == null ) provtag = this.provtag;
 
-        this.tabbed.selectTab( "exposuredetail" );
+        this.parenttabs.selectTab( "exposuredetail" );
+        let target = this.parent.emptiabledivs["exposuredetail"];
 
         if ( this.exposure_displays.hasOwnProperty( id ) ) {
-            this.exposure_displays[id].render_page();
+            taget.reset( { 'body': this.exposure_displays[id].div } );
         }
         else {
-            rkWebUtil.wipeDiv( this.exposurediv );
-            rkWebUtil.elemaker( "p", this.exposurediv, { "text": "Loading...",
-                                                         "classes": [ "warning", "bold", "italic" ] } );
+            target.reset( { "text": "Loading...", "classes": [ "warning", "bold", "italic" ] } );
             this.context.connector.sendHttpRequest( "exposure_images/" + id + "/" + provtag,
                                                     null,
                                                     (data) => { self.actually_show_exposure( data ); }
@@ -145,8 +118,14 @@ seechange.ExposureList = class
 
     actually_show_exposure( data )
     {
-        let exp = new seechange.Exposure( this.context, this.exposurediv, data );
+        let exp = new seechange.Exposure( this.context, this.parenttabs, data,
+                                          { 'imagedetailsdiv': this.parent.emptiabledivs["imagedetail"].div,
+                                            'reportsdiv': this.parent.emptiabledivs["reports"].div,
+                                            'detectionsdiv': this.parent.emptiabledivs["sources"].div,
+                                            'fakesdiv': this.parent.emptiabledivs["fakes"].div
+                                          } );
         this.exposure_displays[data.exposure._id] = exp;
+        this.parent.emptiabledivs["exposuredetail"].reset( { "body": exp.div } );
         exp.render_page();
     };
 }
